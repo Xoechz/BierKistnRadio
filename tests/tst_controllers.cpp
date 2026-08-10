@@ -19,11 +19,11 @@ private slots:
 
 void TestControllers::testPlaybackControllerDefaults() {
   PlaybackController c;
+  QCOMPARE(c.playbackState(), PlaybackController::SpotifyUnavailable);
   QCOMPARE(c.title(), QString());
   QCOMPARE(c.artist(), QString());
-  QCOMPARE(c.isSinkMode(), false);
-  QCOMPARE(c.isStation(), false);
-  QCOMPARE(c.isPlaying(), false);
+  QCOMPARE(c.isBluetoothActive(), false);
+  QCOMPARE(c.isSpotifyPlaying(), false);
   QCOMPARE(c.position(), qint64(0));
   QCOMPARE(c.duration(), qint64(0));
 }

@@ -37,11 +37,13 @@ ApplicationWindow {
         StatusBar {
             Layout.fillWidth: true
             activeSource: {
-                if (PlaybackController.isSinkMode)
-                    return "Bluetooth"
-                if (PlaybackController.isStation)
-                    return "Radio"
-                return "Spotify"
+                switch (PlaybackController.playbackState) {
+                    case PlaybackController.BluetoothWaiting:
+                    case PlaybackController.BluetoothActive:
+                        return "Bluetooth"
+                    default:
+                        return "Spotify"
+                }
             }
         }
 
@@ -52,7 +54,6 @@ ApplicationWindow {
             source: {
                 switch (appRouter.currentView) {
                     case "nowplaying": return "qrc:/qt/qml/BierKistnRadio/views/NowPlaying.qml"
-                    case "source": return "qrc:/qt/qml/BierKistnRadio/views/SourceSelection.qml"
                     case "settings": return "qrc:/qt/qml/BierKistnRadio/views/Settings.qml"
                     default: return ""
                 }
@@ -67,7 +68,6 @@ ApplicationWindow {
             Repeater {
                 model: [
                     { view: "nowplaying", label: "Now Playing", icon: "▶" },
-                    { view: "source", label: "Source", icon: "⊕" },
                     { view: "settings", label: "Settings", icon: "⚙" }
                 ]
 

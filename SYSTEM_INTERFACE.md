@@ -46,8 +46,11 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 
 | Controller | Service | Role |
 |---|---|---|
-| `PlaybackController` | MPRIS2 player (`org.mpris.MediaPlayer2.*`) | Track metadata, transport (play/pause/next/previous/seek), position |
-| `ArtCache` | — | Reads `mpris:artUrl` values (may be `file://` or `http://`) |
+| `PlaybackController` | `rs.spotifyd.Controls` (`rs.spotifyd.instance$PID`) | Custom controls: `TransferPlayback`, `VolumeUp`, `VolumeDown`. Available once spotifyd connects to Spotify, even before it's the active device. |
+| `PlaybackController` | MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`) | Track metadata, transport (play/pause/next/previous/seek), position. Available **only when spotifyd is the active playback device** (after `TransferPlayback` or Spotify Connect selection). |
+| `ArtCache` | — | Reads `mpris:artUrl` values (remote `https://` URLs from Spotify CDN) |
+
+**Note on the `$PID` suffix:** spotifyd's well-known names include its PID, which changes on restart. The app discovers the name dynamically by listing bus names and matching `rs.spotifyd.*` / `org.mpris.MediaPlayer2.spotifyd.*`, or uses `QDBusServiceWatcher` with a name match. The system repo must not hardcode the PID.
 
 ### System bus
 
@@ -61,14 +64,17 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 
 The app assumes the kiosk user has been granted the D-Bus actions required by NetworkManager and BlueZ. The system repo owns the **polkit rule** that grants these. If the calls fail with a D-Bus auth error, the app surfaces a "Permission denied — check system config" state — it never silently fails.
 
-### MPRIS2 / Mopidy session bus sharing
+### spotifyd session bus sharing
 
-Mopidy's `mpris` extension exposes its MPRIS2 interface on the **session bus**. For the app to see Mopidy's MPRIS2 interface, **Mopidy and the app must share the same D-Bus session bus**. If Mopidy runs as a system service, it must either:
+spotifyd exposes both its custom `rs.spotifyd.Controls` interface and MPRIS2 on the **session bus** by default. For the app to see spotifyd's interfaces, **spotifyd and the app must share the same D-Bus session bus**. The system repo achieves this by running spotifyd as a **systemd user service** (`systemctl --user`), not a system service:
 
-- be configured to connect to the kiosk user's session bus, or
-- the app's `PlaybackController` must connect to the bus where Mopidy is registered.
+- cage creates the logind session → `systemd --user` starts → spotifyd starts
+- The app, also launched by cage in the same session, inherits the same `DBUS_SESSION_BUS_ADDRESS`
+- Both processes share the session bus automatically — no bus address injection, no UID guessing at build time, no ordering dependencies on the cage service
 
-The system repo must ensure both processes land on the same session bus. The app uses `QDBusConnection::sessionBus()` for MPRIS2.
+The app uses `QDBusConnection::sessionBus()` for all spotifyd communication. No `DBUS_SESSION_BUS_ADDRESS` configuration is needed in the app or the system repo — the user service environment provides it.
+
+Alternatively, spotifyd can use the system bus (`dbus_type = "system"` in config), but this requires a D-Bus policy file granting the kiosk user ownership of `rs.spotifyd.*` and `org.mpris.MediaPlayer2.spotifyd.*`. The systemd user service approach is preferred — it follows the MPRIS2 convention, avoids extra policy configuration, and handles the session bus lifecycle correctly.
 
 ---
 
@@ -79,13 +85,14 @@ The system repo must ensure both processes land on the same session bus. The app
 | `wpctl` | `VolumeController` | Shells out: `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct>%`. Comes from `wireplumber`. Must be on `PATH`. |
 | `wireplumber` (daemon) | `VolumeController` | `wpctl` requires a running `wireplumber` daemon. |
 | `pipewire` (daemon) | audio routing | Required by wireplumber and for Bluetooth A2DP sink routing. |
-| D-Bus session bus | `PlaybackController` | MPRIS2 lives on the session bus. The kiosk user needs a running session bus (`DBUS_SESSION_BUS_ADDRESS`). |
+| `spotifyd` | `PlaybackController` | The Spotify backend. Exposes `rs.spotifyd.Controls` and MPRIS2 on the session bus. Must be running with `use_mpris = true`. The system repo runs it as a **systemd user service** so it shares the kiosk user's session bus automatically. |
+| D-Bus session bus | `PlaybackController` | spotifyd's MPRIS2 and Controls interfaces live on the session bus. Provided automatically by `systemd --user` when cage creates the logind session — no manual `DBUS_SESSION_BUS_ADDRESS` configuration needed. |
 | D-Bus system bus | `WifiController`, `BluetoothController` | Standard system bus — always available under systemd. |
 | Qt Wayland platform plugin | rendering | Bundled via `wrapQtAppsHook`. Needs `wayland` client libs (provided by `qtwayland` build input). |
 
 The app does **not** bundle or require:
 
-- `mopidy` — that's a system service, not a dependency of this package.
+- `mopidy` — dropped. Spotify is served by spotifyd; radio via Bluetooth sink.
 - `network-manager` / `bluez` daemons — system services.
 - `polkit` / `soteria` — system services.
 
@@ -158,13 +165,13 @@ The app will offer Reboot / Power Off buttons (TODO T16). The intended mechanism
 
 This list is as important as what it does — it defines the boundary.
 
-- Does **not** configure or start Mopidy, NetworkManager, BlueZ, PipeWire, or wireplumber.
-- Does **not** write mopidy config (`mopidy.conf`), network config, or bluetooth config files.
+- Does **not** configure or start spotifyd, NetworkManager, BlueZ, PipeWire, or wireplumber.
+- Does **not** write spotifyd config, network config, or bluetooth config files.
 - Does **not** manage the cage compositor or Wayland output configuration.
 - Does **not** set up or manage the polkit / soteria agent.
 - Does **not** create or manage the kiosk user account.
-- Does **not** set up D-Bus service files for Mopidy — that's the Mopidy extension's job.
-- Does **not** route Bluetooth audio — PipeWire/wireplumber handles that. The app only detects sink mode (a A2DP source is connected) and displays the state.
+- Does **not** coordinate audio exclusivity between spotifyd and Bluetooth A2DP — both may play simultaneously; the user manages this manually.
+- Does **not** route Bluetooth audio — PipeWire/wireplumber handles that. The app only detects sink mode (an A2DP source is connected) and displays the state.
 - Does **not** provide a desktop file, systemd service, or D-Bus service file.
 
 ---

@@ -22,13 +22,13 @@ The persistent top strip showing the clock, Wi-Fi state, Bluetooth state, and th
 **Now-Playing**:
 The default view. Shows current Track or Station art, metadata, a scrubbable progress bar, transport controls, and a volume slider. Has a Sink Mode variant for Bluetooth-sink playback.
 
-**Sink Mode**:
-The Now-Playing variant shown when the speaker is acting as a Bluetooth sink. Hides the scrubber and transport controls and displays "Controlled by <Paired Device>". The Paired Device owns playback; the speaker only renders audio routed by PipeWire.
-_Avoid_: bluetooth screen, passthrough.
+**Bluetooth Mode**:
+The Now-Playing variant shown when the speaker is acting as a Bluetooth sink. Hides the scrubber and transport controls and displays "Controlled by <Paired Device>". The Paired Device owns playback; the speaker only renders audio routed by PipeWire. Bluetooth Mode is **opt-in** — a phone connecting via BT does NOT automatically enter Bluetooth Mode. The user must explicitly tap the Source toggle to switch. Has two sub-states: `BluetoothWaiting` (no device connected yet, show "Discoverable — connect your phone") and `BluetoothActive` (device connected, show "Controlled by <Paired Device>").
+_Avoid_: bluetooth screen, passthrough, sink mode (renamed).
 
 **Source**:
-The user-selectable playback input shown in the UI: Spotify, Internet Radio, or Bluetooth sink. A UI/presentation concept derived from current playback state, not a distinct MPRIS player. Mopidy serves Spotify and Internet Radio behind one MPRIS2 interface; the Bluetooth sink is PipeWire-routed audio, not an MPRIS source.
-_Avoid_: input, mode.
+The user-selectable playback input: Spotify or Bluetooth sink. Toggled from the Status Bar — tapping the Source badge switches between spotifyd (MPRIS2) and BT A2DP sink (PipeWire-routed audio). Not a full view. The current Source is derivable from `PlaybackController.playbackState`.
+_Avoid_: input, mode, Source Selection (obsolete — the view was removed).
 
 **Source Selection**:
 The view for choosing a Source.
@@ -42,14 +42,11 @@ The view for on-device management: Wi-Fi connection, Bluetooth pairing, screen b
 A playable item with a title, artist, album, and a fixed duration. Progress is meaningful and scrubbable.
 _Avoid_: song (a Track may be a podcast episode).
 
-**Station**:
-An internet radio stream. Has a name and logo but no fixed duration; progress is a running clock, not a scrubber.
-
 **Transport**:
-The set of playback actions: Play/Pause, Skip Forward, Skip Back. Exposed to the UI through a single MPRIS2 interface regardless of which Mopidy-backed Source is active. Inactive in Sink Mode — the Paired Device owns transport, not the speaker.
+The set of playback actions: Play/Pause, Skip Forward, Skip Back. Exposed to the UI through spotifyd's MPRIS2 interface when in Spotify Mode (`SpotifyActive` state). Inactive in Bluetooth Mode — the Paired Device owns transport, not the speaker.
 
 **Scrub**:
-Dragging the progress slider on a Track to seek to a position. Stations are not scrubbable.
+Dragging the progress slider on a Track to seek to a position. Only available when in `SpotifyActive` state with a valid track duration. Inactive in Bluetooth Mode.
 
 ### Connectivity
 
@@ -60,5 +57,5 @@ A Bluetooth device that has completed pairing with the speaker. May be connected
 The speaker's Bluetooth radio state that allows new phones to find and pair with it. Toggled from the Bluetooth Settings module.
 
 **Sink**:
-The role the speaker plays over Bluetooth: it _receives_ an audio stream from a phone. The phone is the source; the speaker is the sink. This is distinct from Mopidy playback and is routed by PipeWire, not by MPRIS.
+The role the speaker plays over Bluetooth: it _receives_ an audio stream from a phone. The phone is the source; the speaker is the sink. This is distinct from spotifyd playback and is routed by PipeWire, not by MPRIS. A phone connecting as a BT source does NOT automatically make the speaker enter Sink Mode — the user must toggle to Bluetooth explicitly.
 _Avoid_: Bluetooth source (the speaker is never the Bluetooth source).

@@ -11,7 +11,7 @@ This repository produces **only the Qt6/QML touch-screen application**. It does 
 The separate **NixOS system repository** (consumes this repo as a flake input) owns:
 
 - The `cage` Wayland compositor kiosk setup that launches this app
-- `mopidy` (+ `mopidy-spotify`, `mopidy-mpris`, internet-radio extensions) as the media backend
+- `spotifyd` (with `use_mpris = true`) as the Spotify backend — exposes `rs.spotifyd.Controls` and MPRIS2 on the session bus
 - `NetworkManager`, `BlueZ`, `PipeWire`/`wireplumber` daemons
 - `polkit` + a `soteria` agent + a polkit rule granting the kiosk user the D-Bus actions this app calls (Wi-Fi connect, Bluetooth pair, etc.)
 
@@ -29,35 +29,38 @@ This app is a **thin D-Bus client**: it assumes the system environment grants th
 - **Backend:** C++20 (`QObject` controllers owning D-Bus subscriptions, republishing state to QML via `Q_PROPERTY`/`Q_INVOKABLE`).
 - **Build:** CMake with `qt_add_qml_module` (compiled QML resources, AOT-cached).
 - **Packaging:** Nix flake — `packages.<system>.bierkistnRadio` for `x86_64-linux` (dev/test) and `aarch64-linux` (deploy).
-- **Playback abstraction:** MPRIS2 over D-Bus, backed by Mopidy. See [ADR 0001](./docs/adr/0001-mpris2-mopidy-as-playback-abstraction.md).
+- **Playback abstraction:** MPRIS2 over D-Bus via spotifyd (Spotify), plus Bluetooth A2DP sink detection via BlueZ (radio/audio from a paired phone). See [ADR 0003](./docs/adr/0003-spotifyd-and-bluetooth-sink-mopidy-dropped.md).
 - **Volume:** `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct%>` (wireplumber CLI), not a linked C library.
-- **System D-Bus interfaces used:** MPRIS2 (`org.mpris.MediaPlayer2.mopidy`), NetworkManager, BlueZ.
+- **System D-Bus interfaces used:** `rs.spotifyd.Controls`, MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`), NetworkManager, BlueZ.
 - **On-screen keyboard:** `QtQuick.VirtualKeyboard` — **GPLv3/commercial in Qt6**. This app is GPLv3 as a result. See [ADR 0002](./docs/adr/0002-tech-stack.md).
 
 Qt6 modules in nixpkgs live under `kdePackages.*` (e.g. `kdePackages.qtbase`, `kdePackages.qtdeclarative`). `qtquickcontrols2` is bundled into `qtdeclarative` in Qt6 — CMake still uses `find_package(Qt6 COMPONENTS QuickControls2)`.
 
 ## 4. UI Layout & Views
 
-Three full-screen views + a persistent status bar. Navigation is a flat `Loader` driven by a `currentView` enum (`nowplaying` | `source` | `settings`); the Wi-Fi password sub-flow uses a `StackView` inside the Settings view.
+Two full-screen views + a persistent status bar. Navigation is a flat `Loader` driven by a `currentView` enum (`nowplaying` | `settings`); the Wi-Fi password sub-flow uses a `StackView` inside the Settings view. Source switching is a toggle in the Status Bar, not a separate view.
 
 ### A. Status Bar (persistent top strip)
 
 - Height: 48px. Shows clock, Wi-Fi state, Bluetooth state, active Source badge.
+- The Source badge is a toggle: tapping it switches between Spotify and Bluetooth.
+  - Spotify → calls `PlaybackController.switchToSpotify()`: pauses Bluetooth (if active), then queries the bus for the appropriate Spotify state.
+  - Bluetooth → calls `PlaybackController.switchToBluetooth()`: pauses spotifyd, then enters `BluetoothWaiting` (no device connected) or `BluetoothActive` (device already connected).
+  - Shows "…" while switching; resets when `playbackState` changes.
+  - A phone connecting via BT does NOT automatically switch the app to Bluetooth mode — only the user tapping the toggle does.
 - Tapping Wi-Fi or Bluetooth opens the Settings view at the relevant section.
 
 ### B. Now-Playing (default view)
 
-- Album/Station art, Track metadata (title bold large, artist, album — elide/marquee on overflow).
-- Scrubbable progress slider (current timestamp + duration) — **disabled for Stations** (running clock, not a scrubber) and **hidden in Sink Mode**.
-- Transport: Play/Pause, Skip Forward, Skip Back — **inactive in Sink Mode** (the Paired Device owns transport).
-- Volume slider (0–150%).
-- **Sink Mode variant:** shows "Controlled by <Paired Device>", hides scrubber + transport. The speaker only renders PipeWire-routed audio; it does not own playback.
+- Driven by `PlaybackController.playbackState` — a five-state enum:
+  - `SpotifyUnavailable`: spotifyd not running or not connected to Spotify. Show "Spotify service not running — check system config" (error state).
+  - `SpotifyReady`: spotifyd connected but not the active playback device (MPRIS2 not yet available). Show device name, "Transfer Playback" button, hint "or select this device in Spotify". Hide volume slider, scrubber, transport.
+  - `SpotifyActive`: MPRIS2 available. Show album art, Track metadata (title bold large, artist, album — elide/marquee on overflow), scrubbable progress slider (current timestamp + duration), transport (Play/Pause, Skip Forward, Skip Back — driven by `isSpotifyPlaying`), volume slider (0–150%).
+  - `BluetoothWaiting`: user has switched to Bluetooth but no A2DP source is connected. Show "Discoverable — connect your phone".
+  - `BluetoothActive`: A2DP source connected. Show "Controlled by <Paired Device>", hide scrubber + transport. The speaker only renders PipeWire-routed audio; it does not own playback.
+- The app does NOT auto-pause spotifyd when a phone connects via BT — the user manages audio overlap manually. Only the explicit toggle action pauses the other source. A BT disconnect while in a Spotify state does nothing; a BT disconnect while in `BluetoothActive` triggers a bus query to determine the new state.
 
-### C. Source Selection
-
-- Tile grid of three Sources: Spotify (Mopidy context), Internet Radio (Mopidy context), Bluetooth sink (PipeWire routing — not an MPRIS source).
-
-### D. Settings
+### C. Settings
 
 - **Wi-Fi module:** SSID list with signal strength; tap to open OSK for password; calls NetworkManager over D-Bus.
 - **Bluetooth module:** paired/discoverable device list; Connect/Disconnect/Pair actions; Discoverable toggle.
@@ -82,18 +85,17 @@ Three full-screen views + a persistent status bar. Navigation is a flat `Loader`
 ├── src/
 │   ├── main.cpp             # QML engine, defaults QT_QPA_PLATFORM=wayland
 │   └── controllers/         # C++ QObject singletons owning D-Bus state
-│       ├── PlaybackController.{h,cpp}   # MPRIS2
+│       ├── PlaybackController.{h,cpp}   # spotifyd Controls + MPRIS2, Sink Mode
 │       ├── WifiController.{h,cpp}       # NetworkManager
 │       ├── BluetoothController.{h,cpp}  # BlueZ
 │       ├── VolumeController.{h,cpp}    # wpctl
-│       └── ArtCache.{h,cpp}             # album/station art cache + cleanup
+│       └── ArtCache.{h,cpp}             # album art cache + cleanup
 ├── qml/
 │   ├── Main.qml             # root window, frameless fullscreen, nav
 │   ├── Theme.qml            # singleton: colors, sizes, fonts, Material theme
-│   ├── StatusBar.qml        # persistent top bar
+│   ├── StatusBar.qml        # persistent top bar (clock, Wi-Fi, BT, source toggle)
 │   └── views/
 │       ├── NowPlaying.qml
-│       ├── SourceSelection.qml
 │       └── Settings.qml
 ├── tests/
 │   ├── tst_controllers.cpp  # C++ controller unit tests (Qt Test)

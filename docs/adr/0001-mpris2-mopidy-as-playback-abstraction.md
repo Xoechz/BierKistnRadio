@@ -1,5 +1,7 @@
 # MPRIS2 over Mopidy as the playback abstraction
 
+> **Superseded by [ADR 0003](./0003-spotifyd-and-bluetooth-sink-mopidy-dropped.md).** Mopidy is dropped; Spotify is served by spotifyd (full MPRIS2), radio via Bluetooth sink. This ADR is retained for historical context.
+
 The Now-Playing UI needs rich track metadata, a scrubbable progress bar, and transport control for both Spotify and internet radio. We expose all of this through a single **MPRIS2** D-Bus interface, backed by **Mopidy** (with `mopidy-spotify`, `mopidy-mpris`, and internet-radio extensions). `spotifyd` is dropped — it is only a Spotify Connect receiver and does not surface the metadata, queue, or seek control the UI requires, so a spotifyd-driven Now-Playing view would be sparse and require a separate, hand-rolled state path per source. MPRIS2 keeps the UI source-agnostic: one transport API, one metadata shape, one progress model.
 
 ## Considered Options

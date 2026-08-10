@@ -28,19 +28,43 @@ Rectangle {
         Item { Layout.fillWidth: true }
 
         Rectangle {
+            id: sourceBadge
             width: 100
             height: 32
             radius: 16
             color: Theme.accentColor
-            opacity: 0.2
+            opacity: sourceBadge.switching ? 0.5 : 0.2
             Layout.alignment: Qt.AlignVCenter
+
+            property bool switching: false
 
             Label {
                 anchors.centerIn: parent
-                text: activeSource
+                text: sourceBadge.switching ? "…" : activeSource
                 color: Theme.accentColor
                 font.pixelSize: Theme.fontSizeSmall
                 font.bold: true
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    if (sourceBadge.switching)
+                        return
+                    sourceBadge.switching = true
+                    if (activeSource === "Spotify") {
+                        PlaybackController.switchToBluetooth()
+                    } else {
+                        PlaybackController.switchToSpotify()
+                    }
+                }
+            }
+
+            Connections {
+                target: PlaybackController
+                function onPlaybackStateChanged() {
+                    sourceBadge.switching = false
+                }
             }
         }
 

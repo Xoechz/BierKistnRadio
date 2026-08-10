@@ -60,7 +60,6 @@ qt_add_qml_module(bierkistn_core
         qml/Theme.qml
         qml/StatusBar.qml
         qml/views/NowPlaying.qml
-        qml/views/SourceSelection.qml
         qml/views/Settings.qml
 )
 
