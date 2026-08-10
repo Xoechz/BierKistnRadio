@@ -1,66 +1,112 @@
-cmake_minimum_required(VERSION 3.16)
-project(Hashtable VERSION 1.0.0 LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.21)
+project(BierKistnRadio VERSION 0.1.0 LANGUAGES CXX)
 
-# enable virtual folders for projects if supported by the build system/IDE
-set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# set output directories
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib/static)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# configure C11
-set(CMAKE_C_STANDARD 11)          # request C11
-set(CMAKE_C_STANDARD_REQUIRED ON) # enforce requested standard
-set(CMAKE_C_EXTENSIONS OFF)       # disable compiler specific extensions
+find_package(Qt6 REQUIRED COMPONENTS
+    Core
+    Gui
+    Qml
+    Quick
+    QuickControls2
+    Svg
+    VirtualKeyboard
+    Test
+    QuickTest
+)
 
-# configure C++20
-set(CMAKE_CXX_STANDARD 20)          # request C++20
-set(CMAKE_CXX_STANDARD_REQUIRED ON) # enforce requested standard
-set(CMAKE_CXX_EXTENSIONS OFF)       # disable compiler specific extensions
+qt_standard_project_setup(REQUIRES 6.5)
 
-# openGl
-#find_package(OpenGL REQUIRED)
-#find_package(glfw3  REQUIRED)
-#find_package(GLUT REQUIRED)
-#find_package(wxWidgets COMPONENTS gl core base REQUIRED)
-#include(${wxWidgets_USE_FILE})
+qt_policy(SET QTP0001 NEW)
+qt_policy(SET QTP0004 NEW)
 
-# helper function to simplify definition of projects
-function(target name)
-   add_executable(${name} ${ARGN})
+# --- Core library: C++ controllers + QML module ---
+qt_add_library(bierkistn_core STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PlaybackController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/WifiController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/BluetoothController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/VolumeController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/ArtCache.cpp
+)
 
-   #set required warning flags
-   if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU"   OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR
-      "${CMAKE_C_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-      target_compile_options(${name} PRIVATE
-         -Wall                               # enable "all" warnings
-         -Wextra                             # enable extra warnings
-         -Wpedantic                          # enable strict conformance warnings
-         -Wconversion                        # enable warnings for dangerous implicit conversions
-         -Werror=vla                         # disable support for VLAs
-         #-O3                                # enable level 3 optimization
-         -Og                                 # enable debugging optimization
-         -g                                  # enable debugging information
-         -fsanitize=address,undefined,leak   # enable address, undefined behavior and memory leak sanitizers
-      )
-      target_link_libraries(${name} PRIVATE
-         -fsanitize=address,undefined,leak   # enable address, undefined behavior and memory leak sanitizers
-      )
-      # openGl
-      #target_link_libraries(${name} PRIVATE ${OPENGL_LIBRARIES} ${GLUT_LIBRARIES} GLU)
-      #target_include_directories(${project} PUBLIC "inc" ${wxWidgets_INCLUDE_DIRS})
-      #target_link_libraries(${project} PUBLIC compile_flags glfw OpenGL::GL OpenGL::GLU ${wxWidgets_LIBRARIES})
-   elseif("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-      target_compile_options(${name} PRIVATE
-         /W4          # enable almost all "necessary" warnings
-         /permissive- # enforce strict standard compliance
-         /JMC         # optimize debugging experience
-         /MP          # enable parallel compilation
-      )
-   else()
-      message(WARNING "unknown compiler, no warning flags set!")
-   endif()
-endfunction()
+target_include_directories(bierkistn_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers
+)
 
-target(#fill out)
+target_link_libraries(bierkistn_core PUBLIC
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickControls2
+    Qt6::Svg
+    Qt6::VirtualKeyboard
+)
+
+set_source_files_properties(qml/Theme.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
+qt_add_qml_module(bierkistn_core
+    URI BierKistnRadio
+    VERSION 1.0
+    OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/BierKistnRadio
+    QML_FILES
+        qml/Main.qml
+        qml/Theme.qml
+        qml/StatusBar.qml
+        qml/views/NowPlaying.qml
+        qml/views/SourceSelection.qml
+        qml/views/Settings.qml
+)
+
+# --- Application executable ---
+qt_add_executable(bierkistnRadio
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
+)
+
+target_link_libraries(bierkistnRadio PRIVATE bierkistn_core)
+
+install(TARGETS bierkistnRadio
+    BUNDLE DESTINATION .
+    RUNTIME DESTINATION bin
+)
+
+# --- Testing ---
+enable_testing()
+
+# C++ controller unit tests
+qt_add_executable(tst_controllers
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_controllers.cpp
+)
+
+target_link_libraries(tst_controllers PRIVATE
+    bierkistn_core
+    Qt6::Test
+)
+
+add_test(NAME tst_controllers COMMAND tst_controllers)
+
+# QML view tests
+qt_add_executable(tst_qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_qml.cpp
+)
+
+target_link_libraries(tst_qml PRIVATE
+    bierkistn_core
+    Qt6::QuickTest
+)
+
+target_compile_definitions(tst_qml PRIVATE
+    QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
+)
+
+add_test(NAME tst_qml COMMAND tst_qml)
+
+set_tests_properties(tst_qml PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QML_IMPORT_PATH=${CMAKE_BINARY_DIR}"
+)

@@ -1,0 +1,25 @@
+{
+  "[cpp]": { "editor.formatOnSave": false },
+  "[qml]": { "editor.tabSize": 4 },
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "clangd.arguments": ["--compile-commands-dir=build"],
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureOnOpen": true,
+  "cmake.configureSettings": {
+    "CMAKE_BUILD_TYPE": "Debug",
+    "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+  },
+  "cmake.generator": "Ninja",
+  "cmake.parallelJobs": 0,
+  "files.associations": { "*.qml": "qml" },
+  "files.watcherExclude": {
+    "**/.direnv/**": true,
+    "**/build/**": true,
+    "**/result/**": true
+  },
+  "search.exclude": {
+    "**/.direnv": true,
+    "**/build": true,
+    "**/result": true
+  }
+}

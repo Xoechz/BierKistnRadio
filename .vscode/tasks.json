@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake Configure (Debug)",
+      "type": "shell",
+      "command": "scripts/setup.sh",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "scripts/build.sh",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Clean",
+      "type": "shell",
+      "command": "scripts/clean.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run",
+      "type": "shell",
+      "command": "scripts/run.sh",
+      "dependsOn": "Build",
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "focus": true }
+    },
+    {
+      "label": "Nix Build (x86_64)",
+      "type": "shell",
+      "command": "scripts/nix-build.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "Nix Build (aarch64 / Pi)",
+      "type": "shell",
+      "command": "scripts/nix-build-pi.sh",
+      "problemMatcher": []
+    }
+  ]
+}
