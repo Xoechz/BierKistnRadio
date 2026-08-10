@@ -57,3 +57,4 @@ compile_commands.json
 
 .direnv/
 result
+!nix-build-pi.sh
