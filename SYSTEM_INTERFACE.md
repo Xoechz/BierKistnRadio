@@ -9,7 +9,7 @@ For architectural rationale, see [ADR 0001](./docs/adr/0001-mpris2-mopidy-as-pla
 ## 1. Flake output
 
 | Attribute | Type | Systems |
-|---|---|---|
+| --- | --- | --- |
 | `packages.<system>.bierkistnRadio` | derivation | `x86_64-linux`, `aarch64-linux` |
 | `packages.<system>.default` | alias → `bierkistnRadio` | same |
 
@@ -45,7 +45,7 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 ### Session bus
 
 | Controller | Service | Role |
-|---|---|---|
+| --- | --- | --- |
 | `PlaybackController` | `rs.spotifyd.Controls` (`rs.spotifyd.instance$PID`) | Custom controls: `TransferPlayback`, `VolumeUp`, `VolumeDown`. Available once spotifyd connects to Spotify, even before it's the active device. |
 | `PlaybackController` | MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`) | Track metadata, transport (play/pause/next/previous/seek), position. Available **only when spotifyd is the active playback device** (after `TransferPlayback` or Spotify Connect selection). |
 | `ArtCache` | — | Reads `mpris:artUrl` values (remote `https://` URLs from Spotify CDN) |
@@ -55,7 +55,7 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 ### System bus
 
 | Controller | Service | Role |
-|---|---|---|
+| --- | --- | --- |
 | `WifiController` | `org.freedesktop.NetworkManager` | Scan, connect, disconnect, connection state |
 | `BluetoothController` | `org.bluez` | Device discovery, pairing, connect/disconnect, discoverable toggle |
 | `PlaybackController` | `org.bluez` (MediaTransport) | Sink Mode detection (A2DP source connected) |
@@ -74,14 +74,12 @@ spotifyd exposes both its custom `rs.spotifyd.Controls` interface and MPRIS2 on 
 
 The app uses `QDBusConnection::sessionBus()` for all spotifyd communication. No `DBUS_SESSION_BUS_ADDRESS` configuration is needed in the app or the system repo — the user service environment provides it.
 
-Alternatively, spotifyd can use the system bus (`dbus_type = "system"` in config), but this requires a D-Bus policy file granting the kiosk user ownership of `rs.spotifyd.*` and `org.mpris.MediaPlayer2.spotifyd.*`. The systemd user service approach is preferred — it follows the MPRIS2 convention, avoids extra policy configuration, and handles the session bus lifecycle correctly.
-
 ---
 
 ## 4. Runtime dependencies (on PATH or in environment)
 
 | Dependency | Used by | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `wpctl` | `VolumeController` | Shells out: `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct>%`. Comes from `wireplumber`. Must be on `PATH`. |
 | `wireplumber` (daemon) | `VolumeController` | `wpctl` requires a running `wireplumber` daemon. |
 | `pipewire` (daemon) | audio routing | Required by wireplumber and for Bluetooth A2DP sink routing. |
