@@ -63,7 +63,7 @@ Two full-screen views + a persistent status bar. Navigation is a flat `Loader` d
 ### C. Settings
 
 - **Wi-Fi module:** SSID list with signal strength; tap to open OSK for password; calls NetworkManager over D-Bus.
-- **Bluetooth module:** state-only (phone-driven, see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md)) — shows the connected device and the takeover confirmation dialog. No device list, no Pair/Connect/Disconnect actions, no Discoverable toggle (the NixOS system config keeps the adapter always discoverable/pairable).
+- **Bluetooth module:** state-only (phone-driven, see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md)) — shows the connected device and the takeover confirmation dialog. No device list, no Pair/Connect/Disconnect actions, no Discoverable toggle (the NixOS system config sets the adapter always discoverable/pairable as a base policy; the app re-asserts `Discoverable=true` when the user switches to Bluetooth while no device is connected).
 - **System controls:** brightness slider; Reboot / Power Off triggers.
 
 ## 5. Design Guidelines

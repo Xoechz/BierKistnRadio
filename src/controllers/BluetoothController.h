@@ -24,6 +24,7 @@ public:
   bool takeoverPending() const;
 
   Q_INVOKABLE void resolveTakeover(TakeoverChoice choice);
+  Q_INVOKABLE void ensureDiscoverable();
 
 signals:
   void connectedDeviceNameChanged();

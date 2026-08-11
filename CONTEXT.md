@@ -55,7 +55,7 @@ A Bluetooth device that has completed pairing with the speaker. May be connected
 _Avoid_: connected device (a paired device may be disconnected).
 
 **Discoverable**:
-The speaker's Bluetooth radio state that allows new phones to find and pair with it. Owned by the NixOS system config — always on, not toggled from the UI. A phone pairing compares over JustWorks; the user never drives pairing from the app.
+The speaker's Bluetooth radio state that allows new phones to find and pair with it. The NixOS system config sets it always on as the base policy; BlueZ drops it on connect, so the **app re-asserts `Discoverable=true` when the user switches to Bluetooth with no device connected**. There is no toggle in the UI.
 _Avoid_: pairing mode, discoverable toggle (there is none).
 
 **Takeover**:

@@ -9,3 +9,5 @@ QString BluetoothController::connectedDeviceName() const {
 bool BluetoothController::takeoverPending() const { return m_takeoverPending; }
 
 void BluetoothController::resolveTakeover(TakeoverChoice) {}
+
+void BluetoothController::ensureDiscoverable() {}

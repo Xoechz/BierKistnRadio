@@ -17,7 +17,7 @@ The Pi acts as an A2DP sink; the phone plays audio and streams it to the Pi. The
 
 1. **Phone drives everything.** The Pi advertises; the phone finds, pairs, connects. The Pi UI never initiates pairing, never runs `StartDiscovery`, never sends `Connect` to a device.
 2. **UI is state-only.** The Settings → Bluetooth module shows only the current connection state (and acts on takeover). No device list, no Pair/Connect/Disconnect rows.
-3. **Discoverability/pairing policy is NixOS-owned.** The system repo sets the adapter to *always* discoverable + pairable (`DiscoverableTimeout=0`, `Pairable`, `AutoEnable`). The app has no Discoverable toggle.
+3. **Discoverability/pairing policy is NixOS-owned as a BASE config, with app re-assertion on demand.** The system repo sets the adapter to always discoverable + pairable (`DiscoverableTimeout=0`, `Pairable`, `AutoEnable`). Because BlueZ drops `Discoverable` the moment a device connects (it is not restored by an enforcement service), the **app re-asserts `Discoverable=true`** whenever the user switches to the Bluetooth source while no device is connected (`BluetoothWaiting`). The app has no Discoverable toggle — just this one-shot assertion when it needs a phone to find it.
 4. **Connection/takeover state is UI-owned.** `BluetoothController` watches `Device1` objects via `PropertiesChanged` and calls `Device1.Disconnect()` to kick a device. This is independent of who owns discoverability.
 5. **One active phone, takeover mediated by a modal dialog.** When a second device connects while one is active, a modal dialog asks "Keep <current> or switch to <new>?". Default after **10 seconds** is **keep current**; choosing keep disconnects the new phone.
 
@@ -31,7 +31,8 @@ The Pi acts as an A2DP sink; the phone plays audio and streams it to the Pi. The
 
 - TODO **T7 collapses**: no `StartDiscovery`, no discovery-based device list. Implemented as: watch `org.bluez` `Device1` objects + `PropertiesChanged` for `Connected`/`Name`, and the takeover dialog flow.
 - TODO **T16 simplifies**: Settings → Bluetooth shows current connected device + takeover state; the Discoverable switch and device rows are gone.
-- **`BluetoothController` API shrinks**: drops `devices`, `pair`, `connectDevice`, `disconnectDevice`, and the `setDiscoverable` toggle. Keeps a connection/state surface (`connectedDeviceName`, takeover flow, `disconnectCurrent`).
+- **`BluetoothController` API shrinks**: drops `devices`, `pair`, `connectDevice`, `disconnectDevice`, and the `setDiscoverable` *toggle*. Keeps a connection/state surface (`connectedDeviceName`, takeover flow, `disconnectCurrent`) and adds the one-shot `ensureDiscoverable()` re-assertion for `BluetoothWaiting`.
 - **`Powered` state stays a concern**: the app still needs the adapter powered; whether that's NixOS (`AutoEnable`) or app-asserted is a system-repo detail recorded in SYSTEM_INTERFACE.md.
+- **`Discoverable` re-assertion is app-owned**: BlueZ drops `Discoverable` on connect and never restores it; the app re-asserts it via `Adapter1.Set(Discoverable, true)` when entering `BluetoothWaiting` (user switched to Bluetooth with no device connected). No system-level `bluetoothctl discoverable on` enforcement service is needed.
 - **Two phones at once**: app enforces single-active via the takeover dialog (disconnect on "keep current" or on switching). WirePlumber's default-sink behavior is not relied on.
 - **logind active-session caveat**: BlueZ/PipeWire only expose Bluetooth nodes to the active logind session — the kiosk user must hold the active seat (cage session) for devices to appear. Recorded in SYSTEM_INTERFACE.md.
