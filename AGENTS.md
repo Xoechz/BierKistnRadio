@@ -29,9 +29,10 @@ This app is a **thin D-Bus client**: it assumes the system environment grants th
 - **Backend:** C++20 (`QObject` controllers owning D-Bus subscriptions, republishing state to QML via `Q_PROPERTY`/`Q_INVOKABLE`).
 - **Build:** CMake with `qt_add_qml_module` (compiled QML resources, AOT-cached).
 - **Packaging:** Nix flake — `packages.<system>.bierkistnRadio` for `x86_64-linux` (dev/test) and `aarch64-linux` (deploy).
-- **Playback abstraction:** MPRIS2 over D-Bus via spotifyd (Spotify), plus Bluetooth A2DP sink detection via BlueZ (radio/audio from a paired phone). See [ADR 0003](./docs/adr/0003-spotifyd-and-bluetooth-sink-mopidy-dropped.md).
-- **Volume:** `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct%>` (wireplumber CLI), not a linked C library.
-- **System D-Bus interfaces used:** MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`), NetworkManager, BlueZ.
+- **Playback abstraction:** MPRIS2 over D-Bus via spotifyd (Spotify), plus Bluetooth A2DP sink + best-effort AVRCP controls via BlueZ (radio/audio from a paired phone). Playback source state lives in `SpotifyClient` / `BluetoothClient`, coordinated by the `PlaybackController` facade — see [ADR 0003](./docs/adr/0003-spotifyd-and-bluetooth-sink-mopidy-dropped.md) and [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md).
+- **Volume:** `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct%>` (wireplumber CLI), not a linked C library. Source-independent — shown in every state.
+- **Bluetooth audio mute (overlap guarantee):** muting the A2DP stream = find the `bluez_output.*.a2dp-sink` PipeWire node via `pw-cli`/`pw-dump`, then `wpctl set-mute <id>`. Never mute `@DEFAULT_AUDIO_SINK@` (that's spotifyd's path too). See [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md).
+- **System D-Bus interfaces used:** MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`), `org.bluez` (`Device1`, `Adapter1`, `MediaPlayer1` for best-effort AVRCP), NetworkManager, BlueZ.
 - **On-screen keyboard:** `QtQuick.VirtualKeyboard` — **GPLv3/commercial in Qt6**. This app is GPLv3 as a result. See [ADR 0002](./docs/adr/0002-tech-stack.md).
 
 Qt6 modules in nixpkgs live under `kdePackages.*` (e.g. `kdePackages.qtbase`, `kdePackages.qtdeclarative`). `qtquickcontrols2` is bundled into `qtdeclarative` in Qt6 — CMake still uses `find_package(Qt6 COMPONENTS QuickControls2)`.
@@ -44,26 +45,27 @@ Two full-screen views + a persistent status bar. Navigation is a flat `Loader` d
 
 - Height: 48px. Shows clock, Wi-Fi state, Bluetooth state, active Source badge.
 - The Source badge is a toggle: tapping it switches between Spotify and Bluetooth.
-  - Spotify → calls `PlaybackController.switchToSpotify()`: pauses Bluetooth (if active), then queries the bus for the appropriate Spotify state.
-  - Bluetooth → calls `PlaybackController.switchToBluetooth()`: pauses spotifyd, then enters `BluetoothWaiting` (no device connected) or `BluetoothActive` (device already connected).
+  - Spotify → calls `PlaybackController.switchToSpotify()`: mutes the Bluetooth stream (if active), then sends a best-effort AVRCP `Pause`, then queries the bus for the appropriate Spotify state. See the mute invariant in [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md).
+  - Bluetooth → calls `PlaybackController.switchToBluetooth()`: pauses spotifyd, unmutes the Bluetooth stream, then enters `BluetoothWaiting` (no device connected) or `BluetoothActive` (device already connected).
   - Shows "…" while switching; resets when `playbackState` changes.
-  - A phone connecting via BT does NOT automatically switch the app to Bluetooth mode — only the user tapping the toggle does.
+  - A phone connecting via BT does NOT automatically switch the app to Bluetooth mode — only the user tapping the toggle does. (It *does* get muted if the app is in a Spotify state — the mute invariant, not a state change.)
 - Tapping Wi-Fi or Bluetooth opens the Settings view at the relevant section.
 
 ### B. Now-Playing (default view)
 
 - Driven by `PlaybackController.playbackState` — a five-state enum:
   - `SpotifyUnavailable`: MPRIS2 name absent — spotifyd not running or not connected to Spotify. Show "Spotify service not running — check system config" (error state).
-  - `SpotifyWaiting`: MPRIS2 present but no track loaded (the Pi is not the active playback device yet). Spotify is phone-driven, like Bluetooth (see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md)): show hint "Open Spotify on your phone — choose this speaker". Hide volume slider, scrubber, transport.
+  - `SpotifyWaiting`: MPRIS2 present but no track loaded (the Pi is not the active playback device yet). Spotify is phone-driven, like Bluetooth (see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md)): show hint "Open Spotify on your phone — choose this speaker". Hide scrubber and transport; volume slider shown.
   - `SpotifyActive`: MPRIS2 available with a track loaded. Show album art, Track metadata (title bold large, artist, album — elide/marquee on overflow), scrubbable progress slider (current timestamp + duration), transport (Play/Pause, Skip Forward, Skip Back — driven by `isSpotifyPlaying`), volume slider (0–150%).
-  - `BluetoothWaiting`: user has switched to Bluetooth but no A2DP source is connected. Show "Discoverable — connect your phone".
-  - `BluetoothActive`: A2DP source connected. Show "Controlled by <Paired Device>", hide scrubber + transport. The speaker only renders PipeWire-routed audio; it does not own playback.
-- The app does NOT auto-pause spotifyd when a phone connects via BT — the user manages audio overlap manually. Only the explicit toggle action pauses the other source. A BT disconnect while in a Spotify state does nothing; a BT disconnect while in `BluetoothActive` triggers a bus query to determine the new state.
+  - `BluetoothWaiting`: user has switched to Bluetooth but no A2DP source is connected. Show "Discoverable — connect your phone". Volume slider shown.
+  - `BluetoothActive`: A2DP source connected. Best-effort AVRCP controls via `BluetoothClient` — see [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md). Transport (Play/Pause/Next/Previous) is shown **only while the phone publishes AVRCP `Status`**; ragged metadata (title/artist/album, "via <Device>") **only while `Track` is published**, falling back to "No Metadata available"; when neither is published → just "Controlled by <Paired Device>". No scrubber; a **passive non-interactive progress bar** (no thumb) shows `Position` while it publishes. Volume slider shown.
+- The volume slider is universal (all five states) — it is source-independent sink volume (`@DEFAULT_AUDIO_SINK@`), independent of connection and of the BT mute. See [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md).
+- The app does NOT auto-pause spotifyd when a phone connects via BT — but the **mute invariant** in [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md) guarantees a BT stream is muted while in a Spotify state (re-asserted on every connect). Audio overlap is otherwise managed by the explicit toggle (mute/pause the outgoing source). A BT disconnect while in a Spotify state does nothing; a BT disconnect while in `BluetoothActive` triggers a bus query to determine the new state.
 
 ### C. Settings
 
 - **Wi-Fi module:** SSID list with signal strength; tap to open OSK for password; calls NetworkManager over D-Bus.
-- **Bluetooth module:** state-only (phone-driven, see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md)) — shows the connected device and the takeover confirmation dialog. No device list, no Pair/Connect/Disconnect actions, no Discoverable toggle (the NixOS system config sets the adapter always discoverable/pairable as a base policy; the app re-asserts `Discoverable=true` when the user switches to Bluetooth while no device is connected).
+- **Bluetooth module:** state-only (phone-driven, see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md)) — shows the connected device and the takeover confirmation dialog. No device list, no Pair/Connect/Disconnect actions, no Discoverable toggle (the NixOS system config sets the adapter always discoverable/pairable as a base policy; the app re-asserts `Discoverable=true` when the user switches to Bluetooth while no device is connected). Reached through the facade: `PlaybackController.bluetooth.*`.
 - **System controls:** brightness slider; Reboot / Power Off triggers.
 
 ## 5. Design Guidelines
@@ -84,11 +86,12 @@ Two full-screen views + a persistent status bar. Navigation is a flat `Loader` d
 ├── CMakeLists.txt           # Qt6 + qt_add_qml_module, C++20
 ├── src/
 │   ├── main.cpp             # QML engine, defaults QT_QPA_PLATFORM=wayland
-│   └── controllers/         # C++ QObject singletons owning D-Bus state
-│       ├── PlaybackController.{h,cpp}   # spotifyd Controls + MPRIS2, Sink Mode
+│   └── controllers/         # C++ QObject controllers owning D-Bus state
+│       ├── PlaybackController.{h,cpp}   # facade: playbackState, source switching, transport routing
+│       ├── SpotifyClient.{h,cpp}        # MPRIS2 (spotifyd), source state + transport
+│       ├── BluetoothClient.{h,cpp}      # BlueZ: Device1 + MediaPlayer1 AVRCP, takeover, mute
 │       ├── WifiController.{h,cpp}       # NetworkManager
-│       ├── BluetoothController.{h,cpp}  # BlueZ
-│       ├── VolumeController.{h,cpp}    # wpctl
+│       ├── VolumeController.{h,cpp}    # wpctl (source-independent sink volume)
 │       └── ArtCache.{h,cpp}             # album art cache + cleanup
 ├── qml/
 │   ├── Main.qml             # root window, frameless fullscreen, nav
@@ -139,7 +142,9 @@ Run tests: `scripts/test.sh` (or `ctest --test-dir build --output-on-failure` di
 
 ## 9. Controller Conventions
 
-Every C++ controller is a `QML_SINGLETON` + `QML_NAMED_ELEMENT`, exposed to QML by its class name. It owns one D-Bus concern, subscribes to signals, and republishes state via `Q_PROPERTY` (with `NOTIFY`) and `Q_INVOKABLE` methods. QML never calls D-Bus directly. Keep controllers unit-testable in C++ — no QML dependency in the controller layer.
+`PlaybackController` is the **only QML singleton in the playback domain** and acts as a **facade**: it owns `playbackState`, source switching, and transport routing, and exposes its source clients as `Q_PROPERTY` children (`PlaybackController.spotify`, `PlaybackController.bluetooth`) for QML to bind data on. `SpotifyClient` (MPRIS2) and `BluetoothClient` (BlueZ) are plain parented `QObject`s — **not** QML singletons — and are reached only through the facade. `WifiController` and `VolumeController` remain independent QML singletons (Settings + volume slider; volume is source-independent, see [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md)).
+
+Each controller/client owns one D-Bus concern, subscribes to signals, and republishes state via `Q_PROPERTY` (with `NOTIFY`) and `Q_INVOKABLE` methods. QML never calls D-Bus directly. Transport calls (play/pause/next/seek) route through `PlaybackController` to the active source; non-source concerns (takeover, Wi-Fi, volume) are reached directly but never D-Bus-called from QML. Keep controllers unit-testable in C++ — no QML dependency in the controller layer.
 
 ## 10. Online Resources
 

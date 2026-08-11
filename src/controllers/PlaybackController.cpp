@@ -7,7 +7,8 @@ const QString kPlayerPath = QStringLiteral("/org/mpris/MediaPlayer2");
 
 const QString kPropertiesInterface =
     QStringLiteral("org.freedesktop.DBus.Properties");
-const QString kPlayerInterface = QStringLiteral("org.mpris.MediaPlayer2.Player");
+const QString kPlayerInterface =
+    QStringLiteral("org.mpris.MediaPlayer2.Player");
 
 const QString kPropertiesChanged = QStringLiteral("PropertiesChanged");
 
@@ -21,7 +22,8 @@ const QString kAlbumKey = QStringLiteral("xesam:album");
 const QString kArtUrlKey = QStringLiteral("mpris:artUrl");
 const QString kLengthKey = QStringLiteral("mpris:length");
 const QString kTrackIdKey = QStringLiteral("mpris:trackid");
-const QString kNoTrackTrackId = QStringLiteral("/org/mpris/MediaPlayer2/TrackList/NoTrack");
+const QString kNoTrackTrackId =
+    QStringLiteral("/org/mpris/MediaPlayer2/TrackList/NoTrack");
 
 const QString kPlaying = QStringLiteral("Playing");
 } // namespace
@@ -139,15 +141,13 @@ void PlaybackController::onServiceOwnerChanged(const QString &name,
 
 void PlaybackController::subscribeToMpris() {
   QDBusConnection::sessionBus().connect(
-      m_mprisService, kPlayerPath,
-      kPropertiesInterface, kPropertiesChanged,
+      m_mprisService, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
       this, SLOT(onMprisPropertiesChanged(QString, QVariantMap, QStringList)));
 }
 
 void PlaybackController::unsubscribeFromMpris() {
   QDBusConnection::sessionBus().disconnect(
-      m_mprisService, kPlayerPath,
-      kPropertiesInterface, kPropertiesChanged,
+      m_mprisService, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
       this, SLOT(onMprisPropertiesChanged(QString, QVariantMap, QStringList)));
 }
 
@@ -186,8 +186,7 @@ void PlaybackController::onMprisPropertiesChanged(
     updatePlaybackStatus(changed[kPlaybackStatus].toString());
 
   if (changed.contains(kMetadata)) {
-    QDBusArgument arg =
-        changed[kMetadata].value<QDBusArgument>();
+    QDBusArgument arg = changed[kMetadata].value<QDBusArgument>();
     updateFromMetadata(qdbus_cast<QVariantMap>(arg));
   }
 
@@ -241,7 +240,8 @@ void PlaybackController::updateFromMetadata(const QVariantMap &metadata) {
   }
   if (metadata.contains(kTrackIdKey)) {
     m_trackId = metadata[kTrackIdKey].value<QDBusObjectPath>();
-    m_hasTrack = !m_trackId.path().isEmpty() && m_trackId.path() != kNoTrackTrackId;
+    m_hasTrack =
+        !m_trackId.path().isEmpty() && m_trackId.path() != kNoTrackTrackId;
   }
 }
 
@@ -267,7 +267,8 @@ void PlaybackController::setPlaybackState(PlaybackState next) {
 
 void PlaybackController::refreshSpotifyState(bool force) {
   if (!force) {
-    if (m_playbackState == BluetoothWaiting || m_playbackState == BluetoothActive)
+    if (m_playbackState == BluetoothWaiting ||
+        m_playbackState == BluetoothActive)
       return;
   }
 

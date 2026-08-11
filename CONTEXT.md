@@ -20,10 +20,10 @@ _Avoid_: fullscreen mode, kiosk app (the kiosk is the device's runtime, not a se
 The persistent top strip showing the clock, Wi-Fi state, Bluetooth state, and the active Source badge. Tapping Wi-Fi or Bluetooth opens the relevant Settings module.
 
 **Now-Playing**:
-The default view. Shows current Track or Station art, metadata, a scrubbable progress bar, transport controls, and a volume slider. Has a Sink Mode variant for Bluetooth-sink playback.
+The default view. Shows current Track or Station art, metadata, a scrubbable progress bar, transport controls, and a volume slider. Has a Bluetooth Mode variant for Bluetooth-sink playback.
 
 **Bluetooth Mode**:
-The Now-Playing variant shown when the speaker is acting as a Bluetooth sink. Hides the scrubber and transport controls and displays "Controlled by <Paired Device>". The Paired Device owns playback; the speaker only renders audio routed by PipeWire. Bluetooth Mode is **opt-in** — a phone connecting via BT does NOT automatically enter Bluetooth Mode. The user must explicitly tap the Source toggle to switch. Has two sub-states: `BluetoothWaiting` (no device connected yet, show "Discoverable — connect your phone") and `BluetoothActive` (device connected, show "Controlled by <Paired Device>").
+The Now-Playing variant shown when the speaker is acting as a Bluetooth sink. No scrubber (a passive non-interactive progress bar may show `Position` while the phone publishes it). Best-effort AVRCP transport (Play/Pause/Next/Previous) is shown only while the phone publishes `Status`; metadata only while `Track` is published, else "No Metadata available". Paired Device still owns playback initiation; the speaker only rejects outgoing audio during a Spotify state via the mute invariant (see [ADR 0006](./adr/0006-source-clients-and-best-effort-avrcp-controls.md)). Bluetooth Mode is **opt-in** — a phone connecting via BT does NOT automatically enter Bluetooth Mode. The user must explicitly tap the Source toggle to switch. Has two sub-states: `BluetoothWaiting` (no device connected yet, show "Discoverable — connect your phone") and `BluetoothActive` (device connected, show "Controlled by <Paired Device>").
 _Avoid_: bluetooth screen, passthrough, sink mode (renamed).
 
 **Source**:
@@ -43,10 +43,10 @@ A playable item with a title, artist, album, and a fixed duration. Progress is m
 _Avoid_: song (a Track may be a podcast episode).
 
 **Transport**:
-The set of playback actions: Play/Pause, Skip Forward, Skip Back. Exposed to the UI through spotifyd's MPRIS2 interface when in Spotify Mode (`SpotifyActive` state). Inactive in Bluetooth Mode — the Paired Device owns transport, not the speaker.
+The set of playback actions: Play/Pause, Skip Forward, Skip Back. Exposed to the UI through spotifyd's MPRIS2 interface when in Spotify Mode (`SpotifyActive` state). In Bluetooth Mode, transport is best-effort AVRCP — shown only while the Paired Device publishes `Status` (see [ADR 0006](./adr/0006-source-clients-and-best-effort-avrcp-controls.md)). The Paired Device owns initiation; the speaker's controls are a degraded best-effort layer.
 
 **Scrub**:
-Dragging the progress slider on a Track to seek to a position. Only available when in `SpotifyActive` state with a valid track duration. Inactive in Bluetooth Mode.
+Dragging the progress slider on a Track to seek to a position. Only available when in `SpotifyActive` state with a valid track duration. Inactive in Bluetooth Mode (AVRCP has no seek-absolute; an option only displays a passive progress bar, no thumb).
 
 ### Connectivity
 

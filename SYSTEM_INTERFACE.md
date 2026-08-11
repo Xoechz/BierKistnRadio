@@ -46,7 +46,7 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 
 | Controller | Service | Role |
 | --- | --- | --- |
-| `PlaybackController` | MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`) | Track metadata, transport (play/pause/next/previous/seek), position. Present once spotifyd is connected to Spotify; whether a track is loaded indicates active playback (see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md)). |
+| `SpotifyClient` | MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`) | Track metadata, transport (play/pause/next/previous/seek), position. Present once spotifyd is connected to Spotify; whether a track is loaded indicates active playback (see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md)). |
 | `ArtCache` | — | Reads `mpris:artUrl` values (remote `https://` URLs from Spotify CDN) |
 
 **Note on the `$PID` suffix:** spotifyd's well-known names include its PID, which changes on restart. The app discovers the MPRIS2 name dynamically by listing bus names and matching `org.mpris.MediaPlayer2.spotifyd.*`, or uses `QDBusServiceWatcher` with a name match. The system repo must not hardcode the PID.
@@ -56,17 +56,21 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 | Controller | Service | Role |
 | --- | --- | --- |
 | `WifiController` | `org.freedesktop.NetworkManager` | Scan, connect, disconnect, connection state |
-| `BluetoothController` | `org.bluez` | State-only: watch Device1, disconnect current |
-| `PlaybackController` | `org.bluez` (MediaTransport) | Sink Mode detection (A2DP source connected) |
+| `BluetoothClient` | `org.bluez` | `Device1` state (connected device, takeover kick), `MediaPlayer1` for best-effort AVRCP transport/metadata, `Adapter1.Set` for the `Discoverable` re-assertion |
+| `PlaybackController` | — | Facade only; no D-Bus of its own. Routes transport to `SpotifyClient` / `BluetoothClient`. |
 
 ### Bluetooth connection model
 
-The Bluetooth sink is **phone-driven** — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md). The app's `BluetoothController` is **state-only** and never initiates pairing, discovery, or connection. The system repo owns:
+The Bluetooth sink is **phone-driven** — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md). The app's `BluetoothClient` handles **connection state only** and never initiates pairing, discovery, or connection. The system repo owns:
 
 - **Always discoverable + pairable (base policy).** Adapter set to `Discoverable=true`, `Pairable=true`, `DiscoverableTimeout=0` (persist), `AutoEnable=true`, `Powered=true`. BlueZ automatically drops `Discoverable` once a device connects, so the base policy is NOT re-asserted by an ongoing system service. Instead, the **app re-asserts** `Discoverable=true` on the adapter (`org.bluez.Adapter1.Set`) whenever the user switches to the Bluetooth source while no device is connected (`BluetoothWaiting`). The app has no Discoverable *toggle*, but it does issue this one-shot assertion on entering `BluetoothWaiting`. The D-Bus policy must authorize the kiosk user for `org.bluez.Adapter1.Set`.
 - **A2DP-sink-only role** in WirePlumber: `bluez5.roles = [ a2dp_sink ]`, `device.profile = "a2dp-sink"`, `bluez5.auto-connect = []`, and `bluez5.enable-sbc-xq = true` for high-quality SBC codec.
 
 The app observes `org.bluez.Device1` objects (`PropertiesChanged` for `Connected`/`Name`) and calls `Device1.Disconnect()` to kick a device. **Takeover**: when a second phone connects while one is active, the app shows a modal dialog ("Keep <current> or switch to <new>?", default keep after 10 s) and disconnects accordingly — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md).
+
+**Best-effort AVRCP controls (ADR 0006):** when a device is connected, the app offers best-effort transport/metadata via `org.bluez.MediaPlayer1` on the device's `playerN` path. This is a playback layer; the *connection* model is unchanged and remains phone-driven. No new daemon or polkit surface is required beyond what the phone-driven model already grants the kiosk user, but the polkit rule must authorize the kiosk user for `org.bluez.MediaPlayer1` method calls (Play/Pause/Next/Previous) on connected devices.
+
+**Audio exclusivity mute (ADR 0006):** to guarantee no audio overlap when switching sources, the app mutes the A2DP stream by finding the `bluez_output.*.a2dp-sink` PipeWire node via `pw-cli`/`pw-dump` and running `wpctl set-mute <node id>`. It does **not** mute `@DEFAULT_AUDIO_SINK@` (spotifyd shares that path). The mute is re-asserted whenever a BT stream appears while the app is in a Spotify state, and cleared on switching back to Bluetooth. The system repo must ensure `pw-cli` and `pw-dump` are on PATH (they ship with `pipewire`, already required). The phone's A2DP transport is intentionally **not** disconnected by this — the stream is kept "captured" but inaudible.
 
 **logind active-session requirement:** BlueZ/PipeWire only expose Bluetooth device/nodes to the **active logind session**. The kiosk user must hold the active seat (cage creates the session) or Bluetooth devices will not appear. If seat-monitoring interferes, set `monitor.bluez.seat-monitoring = disabled` in WirePlumber.
 
@@ -90,12 +94,13 @@ The app uses `QDBusConnection::sessionBus()` for all spotifyd communication. No 
 
 | Dependency | Used by | Notes |
 | --- | --- | --- |
-| `wpctl` | `VolumeController` | Shells out: `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct>%`. Comes from `wireplumber`. Must be on `PATH`. |
-| `wireplumber` (daemon) | `VolumeController` | `wpctl` requires a running `wireplumber` daemon. |
+| `wpctl` | `VolumeController`, `BluetoothClient` | Shells out: `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct>%` (slider); `wpctl set-mute <node id>` (BT stream mute, [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md)). Comes from `wireplumber`. Must be on `PATH`. |
+| `pw-cli` / `pw-dump` | `BluetoothClient` | BlueZ sink node discovery for the A2DP mute. Ship with `pipewire`. Must be on `PATH`. |
+| `wireplumber` (daemon) | `VolumeController`, `BluetoothClient` | `wpctl` requires a running `wireplumber` daemon. |
 | `pipewire` (daemon) | audio routing | Required by wireplumber and for Bluetooth A2DP sink routing. |
 | `spotifyd` | `PlaybackController` | The Spotify backend. Exposes MPRIS2 on the session bus. Must be running with `use_mpris = true`. The system repo runs it as a **systemd user service** so it shares the kiosk user's session bus automatically. |
 | D-Bus session bus | `PlaybackController` | spotifyd's MPRIS2 interface lives on the session bus. Provided automatically by `systemd --user` when cage creates the logind session — no manual `DBUS_SESSION_BUS_ADDRESS` configuration needed. |
-| D-Bus system bus | `WifiController`, `BluetoothController` | Standard system bus — always available under systemd. |
+| D-Bus system bus | `WifiController`, `BluetoothClient` | Standard system bus — always available under systemd. |
 | Qt Wayland platform plugin | rendering | Bundled via `wrapQtAppsHook`. Needs `wayland` client libs (provided by `qtwayland` build input). |
 
 The app does **not** bundle or require:
@@ -125,7 +130,7 @@ All Qt6 packages in nixpkgs live under `kdePackages.*`.
 - **URI:** `BierKistnRadio`
 - **Version:** 1.0
 - **Entry point:** `engine.loadFromModule("BierKistnRadio", "Main")` (see `src/main.cpp`)
-- **Singletons exposed to QML:** `Theme` (QML singleton), `PlaybackController`, `WifiController`, `BluetoothController`, `VolumeController`, `ArtCache` (C++ `QML_SINGLETON`s)
+- **Singletons exposed to QML:** `Theme` (QML singleton), `PlaybackController` (facade; source data via `PlaybackController.spotify.*` / `PlaybackController.bluetooth.*`, see [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md)), `WifiController`, `VolumeController`, `ArtCache` (C++ `QML_SINGLETON`s)
 
 The QML module is compiled into the binary via `qt_add_qml_module` (AOT-cached, resources embedded). No external QML files are loaded at runtime — everything is in the Qt resource system (`qrc:/qt/qml/BierKistnRadio/`).
 
@@ -178,8 +183,8 @@ This list is as important as what it does — it defines the boundary.
 - Does **not** manage the cage compositor or Wayland output configuration.
 - Does **not** set up or manage the polkit / soteria agent.
 - Does **not** create or manage the kiosk user account.
-- Does **not** coordinate audio exclusivity between spotifyd and Bluetooth A2DP — both may play simultaneously; the user manages this manually.
-- Does **not** route Bluetooth audio — PipeWire/wireplumber handles that. The app only detects sink mode (an A2DP source is connected) and displays the state.
+- Does **not** coordinate audio exclusivity between spotifyd and Bluetooth A2DP **except for the toggle mute** — the explicit source toggle mutes the outgoing BT stream (ADR 0006) to guarantee no overlap; passive BT connects and automatic events never trigger pause/mute. Audio overlap is otherwise the user's responsibility.
+- Does **not** route Bluetooth audio — PipeWire/wireplumber handles that. The app only observes an A2DP source connect (state) and, when muted per the ADR 0006 invariant, silences the bluez sink node via `wpctl set-mute`.
 - Does **not** provide a desktop file, systemd service, or D-Bus service file.
 
 ---
