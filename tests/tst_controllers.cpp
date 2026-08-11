@@ -22,6 +22,8 @@ void TestControllers::testPlaybackControllerDefaults() {
   QCOMPARE(c.playbackState(), PlaybackController::SpotifyUnavailable);
   QCOMPARE(c.title(), QString());
   QCOMPARE(c.artist(), QString());
+  QCOMPARE(c.album(), QString());
+  QCOMPARE(c.artUrl(), QString());
   QCOMPARE(c.isBluetoothActive(), false);
   QCOMPARE(c.isSpotifyPlaying(), false);
   QCOMPARE(c.position(), qint64(0));
@@ -38,9 +40,8 @@ void TestControllers::testWifiControllerDefaults() {
 
 void TestControllers::testBluetoothControllerDefaults() {
   BluetoothController c;
-  QCOMPARE(c.discoverable(), false);
-  QCOMPARE(c.pairedDeviceName(), QString());
-  QCOMPARE(c.devices(), QStringList());
+  QCOMPARE(c.connectedDeviceName(), QString());
+  QCOMPARE(c.takeoverPending(), false);
 }
 
 void TestControllers::testVolumeControllerSetVolume() {

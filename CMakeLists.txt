@@ -46,6 +46,7 @@ target_link_libraries(bierkistn_core PUBLIC
     Qt6::QuickControls2
     Qt6::Svg
     Qt6::VirtualKeyboard
+    Qt6::DBus
 )
 
 set_source_files_properties(qml/Theme.qml

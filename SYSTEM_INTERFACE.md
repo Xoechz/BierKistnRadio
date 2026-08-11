@@ -57,8 +57,19 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 | Controller | Service | Role |
 | --- | --- | --- |
 | `WifiController` | `org.freedesktop.NetworkManager` | Scan, connect, disconnect, connection state |
-| `BluetoothController` | `org.bluez` | Device discovery, pairing, connect/disconnect, discoverable toggle |
+| `BluetoothController` | `org.bluez` | State-only: watch Device1, disconnect current |
 | `PlaybackController` | `org.bluez` (MediaTransport) | Sink Mode detection (A2DP source connected) |
+
+### Bluetooth connection model
+
+The Bluetooth sink is **phone-driven** — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md). The app's `BluetoothController` is **state-only** and never initiates pairing, discovery, or connection. The system repo owns:
+
+- **Always discoverable + pairable.** Adapter set to `Discoverable=true`, `Pairable=true`, `DiscoverableTimeout=0` (persist), `AutoEnable=true`, `Powered=true`. The app has no Discoverable toggle.
+- **A2DP-sink-only role** in WirePlumber: `bluez5.roles = [ a2dp_sink ]`, `device.profile = "a2dp-sink"`, `bluez5.auto-connect = []`, and `bluez5.enable-sbc-xq = true` for high-quality SBC codec.
+
+The app observes `org.bluez.Device1` objects (`PropertiesChanged` for `Connected`/`Name`) and calls `Device1.Disconnect()` to kick a device. **Takeover**: when a second phone connects while one is active, the app shows a modal dialog ("Keep <current> or switch to <new>?", default keep after 10 s) and disconnects accordingly — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md).
+
+**logind active-session requirement:** BlueZ/PipeWire only expose Bluetooth device/nodes to the **active logind session**. The kiosk user must hold the active seat (cage creates the session) or Bluetooth devices will not appear. If seat-monitoring interferes, set `monitor.bluez.seat-monitoring = disabled` in WirePlumber.
 
 ### Polkit
 

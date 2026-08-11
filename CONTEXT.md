@@ -34,7 +34,7 @@ _Avoid_: input, mode, Source Selection (obsolete — the view was removed).
 The view for choosing a Source.
 
 **Settings**:
-The view for on-device management: Wi-Fi connection, Bluetooth pairing, screen brightness, and power controls.
+The view for on-device management: Wi-Fi connection, Bluetooth state, screen brightness, and power controls. Bluetooth is state-only (shows the connected device and takeover dialog) — pairing and connection happen on the phone, never on this screen.
 
 ### Playback
 
@@ -51,10 +51,15 @@ Dragging the progress slider on a Track to seek to a position. Only available wh
 ### Connectivity
 
 **Paired Device**:
-A Bluetooth device that has completed pairing with the speaker. May be connected or disconnected independently of pairing.
+A Bluetooth device that has completed pairing with the speaker. May be connected or disconnected independently of pairing. The phone always initiates pairing and connection — the speaker only advertises itself.
+_Avoid_: connected device (a paired device may be disconnected).
 
 **Discoverable**:
-The speaker's Bluetooth radio state that allows new phones to find and pair with it. Toggled from the Bluetooth Settings module.
+The speaker's Bluetooth radio state that allows new phones to find and pair with it. Owned by the NixOS system config — always on, not toggled from the UI. A phone pairing compares over JustWorks; the user never drives pairing from the app.
+_Avoid_: pairing mode, discoverable toggle (there is none).
+
+**Takeover**:
+The event where a second phone connects to the speaker while one is already streaming. Mediated by a modal dialog: "Keep <current> or switch to <new>?", defaulting to keep current after 10 seconds. Choosing keep disconnects the new phone; switching disconnects the old one.
 
 **Sink**:
 The role the speaker plays over Bluetooth: it _receives_ an audio stream from a phone. The phone is the source; the speaker is the sink. This is distinct from spotifyd playback and is routed by PipeWire, not by MPRIS. A phone connecting as a BT source does NOT automatically make the speaker enter Sink Mode — the user must toggle to Bluetooth explicitly.

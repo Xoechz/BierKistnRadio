@@ -13,7 +13,7 @@ The separate **NixOS system repository** (consumes this repo as a flake input) o
 - The `cage` Wayland compositor kiosk setup that launches this app
 - `spotifyd` (with `use_mpris = true`) as the Spotify backend — exposes `rs.spotifyd.Controls` and MPRIS2 on the session bus
 - `NetworkManager`, `BlueZ`, `PipeWire`/`wireplumber` daemons
-- `polkit` + a `soteria` agent + a polkit rule granting the kiosk user the D-Bus actions this app calls (Wi-Fi connect, Bluetooth pair, etc.)
+- `polkit` + a `soteria` agent + a polkit rule granting the kiosk user the D-Bus actions this app calls (Wi-Fi connect, Bluetooth disconnect, etc.)
 
 This app is a **thin D-Bus client**: it assumes the system environment grants those calls. Controllers must surface D-Bus auth errors as a visible "Permission denied — check system config" state, never a silent failure.
 
@@ -63,7 +63,7 @@ Two full-screen views + a persistent status bar. Navigation is a flat `Loader` d
 ### C. Settings
 
 - **Wi-Fi module:** SSID list with signal strength; tap to open OSK for password; calls NetworkManager over D-Bus.
-- **Bluetooth module:** paired/discoverable device list; Connect/Disconnect/Pair actions; Discoverable toggle.
+- **Bluetooth module:** state-only (phone-driven, see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md)) — shows the connected device and the takeover confirmation dialog. No device list, no Pair/Connect/Disconnect actions, no Discoverable toggle (the NixOS system config keeps the adapter always discoverable/pairable).
 - **System controls:** brightness slider; Reboot / Power Off triggers.
 
 ## 5. Design Guidelines
@@ -140,3 +140,7 @@ Run tests: `scripts/test.sh` (or `ctest --test-dir build --output-on-failure` di
 ## 9. Controller Conventions
 
 Every C++ controller is a `QML_SINGLETON` + `QML_NAMED_ELEMENT`, exposed to QML by its class name. It owns one D-Bus concern, subscribes to signals, and republishes state via `Q_PROPERTY` (with `NOTIFY`) and `Q_INVOKABLE` methods. QML never calls D-Bus directly. Keep controllers unit-testable in C++ — no QML dependency in the controller layer.
+
+## 10. Online Resources
+
+Spotifyd documentation: <https://docs.spotifyd.rs/Introduction.html>

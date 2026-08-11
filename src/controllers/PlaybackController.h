@@ -3,6 +3,11 @@
 #include <QObject>
 #include <QString>
 #include <qqmlintegration.h>
+#include <QDBusConnectionInterface>
+#include <QDBusMessage>
+#include <QDBusArgument>
+#include <QDBusObjectPath>
+#include <QTimer>
 
 class PlaybackController : public QObject {
   Q_OBJECT
@@ -75,4 +80,16 @@ private:
   qint64 m_duration = 0;
   bool m_isSpotifyPlaying = false;
   QString m_pairedDeviceName;
+  QString m_controlsService;
+  QString m_mprisService;
+  QDBusObjectPath m_trackId;
+
+  void fetchInitialMprisState();
+  void subscribeToMpris();
+  void unsubscribeFromMpris();
+  void discoverServices();
+  void onServiceOwnerChanged(const QString &name, const QString &oldOwner, const QString &newOwner);
+  void onMprisPropertiesChanged(const QString &interface, const QVariantMap &changed, const QStringList &invalidated);
+  void updateFromMetadata(const QVariantMap &metadata);
+  void updatePlaybackStatus(const QString &status);
 };

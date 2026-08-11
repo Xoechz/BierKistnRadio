@@ -71,17 +71,11 @@ Page {
                 }
 
                 Label {
-                    text: BluetoothController.discoverable
-                        ? "Discoverable"
-                        : "Not discoverable"
+                    text: BluetoothController.connectedDeviceName
+                        ? "Connected: " + BluetoothController.connectedDeviceName
+                        : "Pair from your phone — the speaker is discoverable"
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.secondaryTextColor
-                }
-
-                Switch {
-                    text: "Discoverable"
-                    checked: BluetoothController.discoverable
-                    onToggled: BluetoothController.setDiscoverable(checked)
                 }
             }
         }

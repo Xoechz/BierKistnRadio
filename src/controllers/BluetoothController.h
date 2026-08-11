@@ -2,7 +2,6 @@
 
 #include <QObject>
 #include <QString>
-#include <QStringList>
 #include <qqmlintegration.h>
 
 class BluetoothController : public QObject {
@@ -10,30 +9,27 @@ class BluetoothController : public QObject {
   QML_SINGLETON
   QML_NAMED_ELEMENT(BluetoothController)
 
-  Q_PROPERTY(bool discoverable READ discoverable NOTIFY discoverableChanged)
-  Q_PROPERTY(QString pairedDeviceName READ pairedDeviceName NOTIFY
-                 pairedDeviceNameChanged)
-  Q_PROPERTY(QStringList devices READ devices NOTIFY devicesChanged)
+  Q_PROPERTY(QString connectedDeviceName READ connectedDeviceName NOTIFY
+                 connectedDeviceNameChanged)
+  Q_PROPERTY(bool takeoverPending READ takeoverPending NOTIFY
+                 takeoverPendingChanged)
 
 public:
+  enum TakeoverChoice { KeepCurrent, SwitchToNew };
+  Q_ENUM(TakeoverChoice)
+
   explicit BluetoothController(QObject *parent = nullptr);
 
-  bool discoverable() const;
-  QString pairedDeviceName() const;
-  QStringList devices() const;
+  QString connectedDeviceName() const;
+  bool takeoverPending() const;
 
-  Q_INVOKABLE void setDiscoverable(bool on);
-  Q_INVOKABLE void pair(const QString &address);
-  Q_INVOKABLE void connectDevice(const QString &address);
-  Q_INVOKABLE void disconnectDevice(const QString &address);
+  Q_INVOKABLE void resolveTakeover(TakeoverChoice choice);
 
 signals:
-  void discoverableChanged();
-  void pairedDeviceNameChanged();
-  void devicesChanged();
+  void connectedDeviceNameChanged();
+  void takeoverPendingChanged();
 
 private:
-  bool m_discoverable = false;
-  QString m_pairedDeviceName;
-  QStringList m_devices;
+  QString m_connectedDeviceName;
+  bool m_takeoverPending = false;
 };

@@ -2,13 +2,10 @@
 
 BluetoothController::BluetoothController(QObject *parent) : QObject(parent) {}
 
-bool BluetoothController::discoverable() const { return m_discoverable; }
-QString BluetoothController::pairedDeviceName() const {
-  return m_pairedDeviceName;
+QString BluetoothController::connectedDeviceName() const {
+  return m_connectedDeviceName;
 }
-QStringList BluetoothController::devices() const { return m_devices; }
 
-void BluetoothController::setDiscoverable(bool) {}
-void BluetoothController::pair(const QString &) {}
-void BluetoothController::connectDevice(const QString &) {}
-void BluetoothController::disconnectDevice(const QString &) {}
+bool BluetoothController::takeoverPending() const { return m_takeoverPending; }
+
+void BluetoothController::resolveTakeover(TakeoverChoice) {}

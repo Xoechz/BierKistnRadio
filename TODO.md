@@ -4,7 +4,7 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 
 ## Phase 1: D-Bus controller wiring
 
-- [ ] **T1: PlaybackController — spotifyd discovery + MPRIS2 connection.** Discover spotifyd's D-Bus name dynamically (list names, match `org.mpris.MediaPlayer2.spotifyd.*` — the `$PID` suffix changes on restart). Add a `QDBusServiceWatcher` to detect when the name appears/vanishes. Once the MPRIS2 name is present, subscribe to `PropertiesChanged` on `org.mpris.MediaPlayer2.Player` and wire `title`, `artist`, `album`, `artUrl`, `position`, `duration`, `isSpotifyPlaying` from D-Bus property changes. Implement `play()`, `pause()`, `next()`, `previous()`, `seek()` as D-Bus method calls. Drive `playbackState` transitions: `SpotifyUnavailable` (no `rs.spotifyd.*` name) → `SpotifyReady` (Controls present, MPRIS2 absent) → `SpotifyActive` (MPRIS2 present).
+- [x] **T1: PlaybackController — spotifyd discovery + MPRIS2 connection.** Discover spotifyd's D-Bus name dynamically (list names, match `org.mpris.MediaPlayer2.spotifyd.*` — the `$PID` suffix changes on restart). Add a `QDBusServiceWatcher` to detect when the name appears/vanishes. Once the MPRIS2 name is present, subscribe to `PropertiesChanged` on `org.mpris.MediaPlayer2.Player` and wire `title`, `artist`, `album`, `artUrl`, `position`, `duration`, `isSpotifyPlaying` from D-Bus property changes. Implement `play()`, `pause()`, `next()`, `previous()`, `seek()` as D-Bus method calls. Drive `playbackState` transitions: `SpotifyUnavailable` (no `rs.spotifyd.*` name) → `SpotifyReady` (Controls present, MPRIS2 absent) → `SpotifyActive` (MPRIS2 present).
   - Learn: `QDBusConnection::sessionBus()`, `QDBusConnectionInterface::registeredServiceNames()`, `QDBusServiceWatcher`, `QDBusInterface`, `QDBusArgument` for extracting metadata from `Metadata` a{sv} map, `Q_ENUM` state machines.
 
 - [ ] **T2: PlaybackController — Spotify Ready state + TransferPlayback.** When `rs.spotifyd.Controls` is present but MPRIS2 is absent, set `playbackState = SpotifyReady`. Implement `transferPlayback()` → calls `rs.spotifyd.Controls.TransferPlayback`. After calling it, wait for the MPRIS2 name to appear (via `QDBusServiceWatcher`). If it doesn't appear within N seconds, surface an error state. Transition to `SpotifyActive` when MPRIS2 arrives. `switchToSpotify()` calls `transferPlayback()` after pausing Bluetooth.
@@ -27,11 +27,11 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 - [ ] **T6: WifiController — connection state tracking.** Subscribe to `PropertiesChanged` on `org.freedesktop.NetworkManager` for `ActiveConnections` and `PrimaryConnection`. Update `connected`, `ssid`, `signalStrength` from the active connection's access point. Handle auth failure (D-Bus error) → surface as a visible state, not a silent failure.
   - Learn: `QDBusConnection::connect()` for `org.freedesktop.DBus.Properties.PropertiesChanged`, `QDBusReply<T>` error handling.
 
-- [ ] **T7: BluetoothController — BlueZ device discovery + pairing.** Use `QDBusObjectManager` on `org.bluez` to track device objects. Call `StartDiscovery`/`StopDiscovery` on `org.bluez.Adapter1`. For pairing: call `Pair` on `org.bluez.Device1`. For connect: call `Connect` on `org.bluez.Device1` (or `ConnectAudio` for A2DP). Populate `devices` list with name, address, paired/connected state.
-  - Learn: `QDBusObjectManagerClient`, `InterfacesAdded`/`InterfacesRemoved` signals, `org.bluez.Device1` properties.
+- [ ] **T7: BluetoothController — state-only tracking (phone-driven)**. Bluetooth is phone-driven (see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md)): the app does NOT initiate pairing, discovery, or connection. Use `QDBusObjectManager` on `org.bluez` to watch `Device1` objects; subscribe to `PropertiesChanged` for `Connected`/`Name`/`Alias`. Expose the current connected device and support kicking it. Implement **takeover**: when a second device connects while one is active, signal QML to show the takeover dialog. Send `Device1.Disconnect()` to kick.
+  - Learn: `QDBusObjectManagerClient`, `InterfacesAdded`/`InterfacesRemoved` signals, `org.bluez.Device1` properties, `Device1.Disconnect()`.
 
-- [ ] **T8: BluetoothController — Discoverable toggle.** Call `Set` on `org.freedesktop.DBus.Properties` for `Discoverable` on `org.bluez.Adapter1`. Subscribe to `PropertiesChanged` to keep the toggle in sync. Handle the case where the adapter is powered off (power it on first).
-  - Learn: `org.freedesktop.DBus.Properties.Set`, adapter power state, `Powered` property.
+- [ ] **T8: BluetoothController — takeover confirmation flow + adapter state.** The takeover dialog is state-only: "Keep <current> or switch to <new>?", default keep after 10 s (timer in QML). Implementing "keep current" → disconnect the new `Device1`; "switch" → disconnect the old. The adapter's intended `Powered`/`Discoverable`/`Pairable` state is owned by the NixOS config — the app only observes and can assert `Powered` if needed, not build a discoverable toggle.
+  - Learn: `QDBusPendingCallWatcher` for async `Disconnect`, `QTimer`/`QMetaObject` for the dialog timeout, adapter property observation.
 
 ## Phase 2: QML views — real data + interactions
 
@@ -64,8 +64,8 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 - [ ] **T15: Settings — Wi-Fi password entry with OSK.** `StackView` push with a `TextField` for password. `QtQuick.VirtualKeyboard` auto-pops up on focus. "Connect" button calls `WifiController.connect(ssid, password)`. Handle failure (wrong password) → red border + error text.
   - Learn: `StackView.push()`, `TextField.focus`, `QtQuick.VirtualKeyboard` behavior, `Qt.inputMethod`.
 
-- [ ] **T16: Settings — Bluetooth device list.** Show `BluetoothController.devices` as a list. Each row: device name, address, paired/connected badges. Buttons: Pair, Connect, Disconnect. Discoverable `Switch` at the top.
-  - Learn: `ListView` delegate with conditional buttons, `Switch` binding, `Q_INVOKABLE` calls from QML.
+- [ ] **T16: Settings — Bluetooth state + takeover.** Show current connected device (state-only, per [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md)) and the takeover confirmation dialog. No device list, no Pair/Connect/Disconnect rows, no Discoverable toggle.
+  - Learn: `ListView`/`Label` for state display, `Dialog` / `Popup` + `Timer` for the takeover confirm with 10 s keep-default.
 
 - [ ] **T17: Settings — brightness slider + power controls.** Brightness: write to `/sys/class/backlight/.../brightness` (or use a D-Bus backlight interface if available on the Pi). Power Off / Reboot: call `systemctl poweroff`/`reboot` via `QProcess` or `login1` D-Bus. Add a confirmation dialog before power actions.
   - Learn: file I/O for backlight (or `org.freedesktop.login1` D-Bus), `Dialog` / `Popup` for confirmation.
