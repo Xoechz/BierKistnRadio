@@ -29,7 +29,7 @@ class PlaybackController : public QObject {
 public:
   enum PlaybackState {
     SpotifyUnavailable,
-    SpotifyReady,
+    SpotifyWaiting,
     SpotifyActive,
     BluetoothWaiting,
     BluetoothActive,
@@ -54,7 +54,6 @@ public:
   Q_INVOKABLE void next();
   Q_INVOKABLE void previous();
   Q_INVOKABLE void seek(qint64 positionMs);
-  Q_INVOKABLE void transferPlayback();
   Q_INVOKABLE void switchToBluetooth();
   Q_INVOKABLE void switchToSpotify();
 
@@ -79,8 +78,8 @@ private:
   qint64 m_position = 0;
   qint64 m_duration = 0;
   bool m_isSpotifyPlaying = false;
+  bool m_hasTrack = false;
   QString m_pairedDeviceName;
-  QString m_controlsService;
   QString m_mprisService;
   QDBusObjectPath m_trackId;
 
@@ -92,4 +91,6 @@ private:
   void onMprisPropertiesChanged(const QString &interface, const QVariantMap &changed, const QStringList &invalidated);
   void updateFromMetadata(const QVariantMap &metadata);
   void updatePlaybackStatus(const QString &status);
+  void setPlaybackState(PlaybackState next);
+  void refreshSpotifyState(bool force = false);
 };

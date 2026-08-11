@@ -11,7 +11,7 @@ This repository produces **only the Qt6/QML touch-screen application**. It does 
 The separate **NixOS system repository** (consumes this repo as a flake input) owns:
 
 - The `cage` Wayland compositor kiosk setup that launches this app
-- `spotifyd` (with `use_mpris = true`) as the Spotify backend — exposes `rs.spotifyd.Controls` and MPRIS2 on the session bus
+- `spotifyd` (with `use_mpris = true`) as the Spotify backend — exposes MPRIS2 on the session bus
 - `NetworkManager`, `BlueZ`, `PipeWire`/`wireplumber` daemons
 - `polkit` + a `soteria` agent + a polkit rule granting the kiosk user the D-Bus actions this app calls (Wi-Fi connect, Bluetooth disconnect, etc.)
 
@@ -31,7 +31,7 @@ This app is a **thin D-Bus client**: it assumes the system environment grants th
 - **Packaging:** Nix flake — `packages.<system>.bierkistnRadio` for `x86_64-linux` (dev/test) and `aarch64-linux` (deploy).
 - **Playback abstraction:** MPRIS2 over D-Bus via spotifyd (Spotify), plus Bluetooth A2DP sink detection via BlueZ (radio/audio from a paired phone). See [ADR 0003](./docs/adr/0003-spotifyd-and-bluetooth-sink-mopidy-dropped.md).
 - **Volume:** `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct%>` (wireplumber CLI), not a linked C library.
-- **System D-Bus interfaces used:** `rs.spotifyd.Controls`, MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`), NetworkManager, BlueZ.
+- **System D-Bus interfaces used:** MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`), NetworkManager, BlueZ.
 - **On-screen keyboard:** `QtQuick.VirtualKeyboard` — **GPLv3/commercial in Qt6**. This app is GPLv3 as a result. See [ADR 0002](./docs/adr/0002-tech-stack.md).
 
 Qt6 modules in nixpkgs live under `kdePackages.*` (e.g. `kdePackages.qtbase`, `kdePackages.qtdeclarative`). `qtquickcontrols2` is bundled into `qtdeclarative` in Qt6 — CMake still uses `find_package(Qt6 COMPONENTS QuickControls2)`.
@@ -53,9 +53,9 @@ Two full-screen views + a persistent status bar. Navigation is a flat `Loader` d
 ### B. Now-Playing (default view)
 
 - Driven by `PlaybackController.playbackState` — a five-state enum:
-  - `SpotifyUnavailable`: spotifyd not running or not connected to Spotify. Show "Spotify service not running — check system config" (error state).
-  - `SpotifyReady`: spotifyd connected but not the active playback device (MPRIS2 not yet available). Show device name, "Transfer Playback" button, hint "or select this device in Spotify". Hide volume slider, scrubber, transport.
-  - `SpotifyActive`: MPRIS2 available. Show album art, Track metadata (title bold large, artist, album — elide/marquee on overflow), scrubbable progress slider (current timestamp + duration), transport (Play/Pause, Skip Forward, Skip Back — driven by `isSpotifyPlaying`), volume slider (0–150%).
+  - `SpotifyUnavailable`: MPRIS2 name absent — spotifyd not running or not connected to Spotify. Show "Spotify service not running — check system config" (error state).
+  - `SpotifyWaiting`: MPRIS2 present but no track loaded (the Pi is not the active playback device yet). Spotify is phone-driven, like Bluetooth (see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md)): show hint "Open Spotify on your phone — choose this speaker". Hide volume slider, scrubber, transport.
+  - `SpotifyActive`: MPRIS2 available with a track loaded. Show album art, Track metadata (title bold large, artist, album — elide/marquee on overflow), scrubbable progress slider (current timestamp + duration), transport (Play/Pause, Skip Forward, Skip Back — driven by `isSpotifyPlaying`), volume slider (0–150%).
   - `BluetoothWaiting`: user has switched to Bluetooth but no A2DP source is connected. Show "Discoverable — connect your phone".
   - `BluetoothActive`: A2DP source connected. Show "Controlled by <Paired Device>", hide scrubber + transport. The speaker only renders PipeWire-routed audio; it does not own playback.
 - The app does NOT auto-pause spotifyd when a phone connects via BT — the user manages audio overlap manually. Only the explicit toggle action pauses the other source. A BT disconnect while in a Spotify state does nothing; a BT disconnect while in `BluetoothActive` triggers a bus query to determine the new state.

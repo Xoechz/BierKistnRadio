@@ -46,11 +46,10 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 
 | Controller | Service | Role |
 | --- | --- | --- |
-| `PlaybackController` | `rs.spotifyd.Controls` (`rs.spotifyd.instance$PID`) | Custom controls: `TransferPlayback`, `VolumeUp`, `VolumeDown`. Available once spotifyd connects to Spotify, even before it's the active device. |
-| `PlaybackController` | MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`) | Track metadata, transport (play/pause/next/previous/seek), position. Available **only when spotifyd is the active playback device** (after `TransferPlayback` or Spotify Connect selection). |
+| `PlaybackController` | MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`) | Track metadata, transport (play/pause/next/previous/seek), position. Present once spotifyd is connected to Spotify; whether a track is loaded indicates active playback (see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md)). |
 | `ArtCache` | — | Reads `mpris:artUrl` values (remote `https://` URLs from Spotify CDN) |
 
-**Note on the `$PID` suffix:** spotifyd's well-known names include its PID, which changes on restart. The app discovers the name dynamically by listing bus names and matching `rs.spotifyd.*` / `org.mpris.MediaPlayer2.spotifyd.*`, or uses `QDBusServiceWatcher` with a name match. The system repo must not hardcode the PID.
+**Note on the `$PID` suffix:** spotifyd's well-known names include its PID, which changes on restart. The app discovers the MPRIS2 name dynamically by listing bus names and matching `org.mpris.MediaPlayer2.spotifyd.*`, or uses `QDBusServiceWatcher` with a name match. The system repo must not hardcode the PID.
 
 ### System bus
 
@@ -77,7 +76,7 @@ The app assumes the kiosk user has been granted the D-Bus actions required by Ne
 
 ### spotifyd session bus sharing
 
-spotifyd exposes both its custom `rs.spotifyd.Controls` interface and MPRIS2 on the **session bus** by default. For the app to see spotifyd's interfaces, **spotifyd and the app must share the same D-Bus session bus**. The system repo achieves this by running spotifyd as a **systemd user service** (`systemctl --user`), not a system service:
+spotifyd exposes MPRIS2 on the **session bus** by default. For the app to see it, **spotifyd and the app must share the same D-Bus session bus**. The system repo achieves this by running spotifyd as a **systemd user service** (`systemctl --user`), not a system service:
 
 - cage creates the logind session → `systemd --user` starts → spotifyd starts
 - The app, also launched by cage in the same session, inherits the same `DBUS_SESSION_BUS_ADDRESS`
@@ -94,8 +93,8 @@ The app uses `QDBusConnection::sessionBus()` for all spotifyd communication. No 
 | `wpctl` | `VolumeController` | Shells out: `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct>%`. Comes from `wireplumber`. Must be on `PATH`. |
 | `wireplumber` (daemon) | `VolumeController` | `wpctl` requires a running `wireplumber` daemon. |
 | `pipewire` (daemon) | audio routing | Required by wireplumber and for Bluetooth A2DP sink routing. |
-| `spotifyd` | `PlaybackController` | The Spotify backend. Exposes `rs.spotifyd.Controls` and MPRIS2 on the session bus. Must be running with `use_mpris = true`. The system repo runs it as a **systemd user service** so it shares the kiosk user's session bus automatically. |
-| D-Bus session bus | `PlaybackController` | spotifyd's MPRIS2 and Controls interfaces live on the session bus. Provided automatically by `systemd --user` when cage creates the logind session — no manual `DBUS_SESSION_BUS_ADDRESS` configuration needed. |
+| `spotifyd` | `PlaybackController` | The Spotify backend. Exposes MPRIS2 on the session bus. Must be running with `use_mpris = true`. The system repo runs it as a **systemd user service** so it shares the kiosk user's session bus automatically. |
+| D-Bus session bus | `PlaybackController` | spotifyd's MPRIS2 interface lives on the session bus. Provided automatically by `systemd --user` when cage creates the logind session — no manual `DBUS_SESSION_BUS_ADDRESS` configuration needed. |
 | D-Bus system bus | `WifiController`, `BluetoothController` | Standard system bus — always available under systemd. |
 | Qt Wayland platform plugin | rendering | Bundled via `wrapQtAppsHook`. Needs `wayland` client libs (provided by `qtwayland` build input). |
 

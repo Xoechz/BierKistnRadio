@@ -1,16 +1,13 @@
 #include "PlaybackController.h"
 
 namespace {
-const QString kControlsPrefix = QStringLiteral("rs.spotifyd.");
 const QString kMprisPrefix = QStringLiteral("org.mpris.MediaPlayer2.spotifyd.");
 
-const QString kControlsPath = QStringLiteral("/rs/spotifyd/Controls");
 const QString kPlayerPath = QStringLiteral("/org/mpris/MediaPlayer2");
 
 const QString kPropertiesInterface =
     QStringLiteral("org.freedesktop.DBus.Properties");
 const QString kPlayerInterface = QStringLiteral("org.mpris.MediaPlayer2.Player");
-const QString kControlsInterface = QStringLiteral("rs.spotifyd.Controls");
 
 const QString kPropertiesChanged = QStringLiteral("PropertiesChanged");
 
@@ -24,6 +21,7 @@ const QString kAlbumKey = QStringLiteral("xesam:album");
 const QString kArtUrlKey = QStringLiteral("mpris:artUrl");
 const QString kLengthKey = QStringLiteral("mpris:length");
 const QString kTrackIdKey = QStringLiteral("mpris:trackid");
+const QString kNoTrackTrackId = QStringLiteral("/org/mpris/MediaPlayer2/TrackList/NoTrack");
 
 const QString kPlaying = QStringLiteral("Playing");
 } // namespace
@@ -95,11 +93,13 @@ void PlaybackController::seek(qint64 positionMs) {
   QDBusConnection::sessionBus().send(msg);
 }
 
-void PlaybackController::transferPlayback() {}
-
 void PlaybackController::switchToBluetooth() { pause(); }
 
-void PlaybackController::switchToSpotify() {}
+void PlaybackController::switchToSpotify() {
+  refreshSpotifyState(true);
+  m_pairedDeviceName.clear();
+  emit pairedDeviceNameChanged();
+}
 
 void PlaybackController::discoverServices() {
   auto *bus = QDBusConnection::sessionBus().interface();
@@ -108,22 +108,11 @@ void PlaybackController::discoverServices() {
     return;
 
   for (const QString &name : reply.value()) {
-    if (name.startsWith(kControlsPrefix)) {
-      m_controlsService = name;
-      if (m_playbackState == SpotifyUnavailable) {
-        m_playbackState = SpotifyReady;
-        emit playbackStateChanged();
-      }
-    }
     if (name.startsWith(kMprisPrefix)) {
       m_mprisService = name;
       subscribeToMpris();
       fetchInitialMprisState();
-      if (m_playbackState != BluetoothWaiting &&
-          m_playbackState != BluetoothActive) {
-        m_playbackState = SpotifyActive;
-        emit playbackStateChanged();
-      }
+      refreshSpotifyState();
     }
   }
 }
@@ -131,49 +120,20 @@ void PlaybackController::discoverServices() {
 void PlaybackController::onServiceOwnerChanged(const QString &name,
                                                const QString &oldOwner,
                                                const QString &newOwner) {
-  bool isControls = name.startsWith(kControlsPrefix);
-  bool isMpris = name.startsWith(kMprisPrefix);
-
-  if (!isControls && !isMpris)
+  if (!name.startsWith(kMprisPrefix))
     return;
 
   if (!newOwner.isEmpty()) {
-    if (isControls) {
-      m_controlsService = name;
-      if (m_playbackState == SpotifyUnavailable) {
-        m_playbackState = SpotifyReady;
-        emit playbackStateChanged();
-      }
-    }
-    if (isMpris) {
-      m_mprisService = name;
-      subscribeToMpris();
-      fetchInitialMprisState();
-      if (m_playbackState != BluetoothWaiting &&
-          m_playbackState != BluetoothActive) {
-        m_playbackState = SpotifyActive;
-        emit playbackStateChanged();
-      }
-    }
+    m_mprisService = name;
+    subscribeToMpris();
+    fetchInitialMprisState();
+    refreshSpotifyState();
   } else {
-    if (isControls) {
-      m_controlsService.clear();
-      if (m_mprisService.isEmpty()) {
-        m_playbackState = SpotifyUnavailable;
-        emit playbackStateChanged();
-      }
-    }
-    if (isMpris) {
-      m_mprisService.clear();
-      m_trackId = QDBusObjectPath();
-      unsubscribeFromMpris();
-      if (m_controlsService.isEmpty()) {
-        m_playbackState = SpotifyUnavailable;
-      } else {
-        m_playbackState = SpotifyReady;
-      }
-      emit playbackStateChanged();
-    }
+    m_mprisService.clear();
+    m_trackId = QDBusObjectPath();
+    m_hasTrack = false;
+    unsubscribeFromMpris();
+    refreshSpotifyState();
   }
 }
 
@@ -235,6 +195,8 @@ void PlaybackController::onMprisPropertiesChanged(
     m_position = changed[kPosition].toLongLong() / 1000;
     emit positionChanged();
   }
+
+  refreshSpotifyState();
 }
 
 void PlaybackController::updateFromMetadata(const QVariantMap &metadata) {
@@ -279,6 +241,7 @@ void PlaybackController::updateFromMetadata(const QVariantMap &metadata) {
   }
   if (metadata.contains(kTrackIdKey)) {
     m_trackId = metadata[kTrackIdKey].value<QDBusObjectPath>();
+    m_hasTrack = !m_trackId.path().isEmpty() && m_trackId.path() != kNoTrackTrackId;
   }
 }
 
@@ -288,4 +251,33 @@ void PlaybackController::updatePlaybackStatus(const QString &status) {
     m_isSpotifyPlaying = playing;
     emit isSpotifyPlayingChanged();
   }
+  if (status == QStringLiteral("Stopped"))
+    m_hasTrack = false;
+}
+
+void PlaybackController::setPlaybackState(PlaybackState next) {
+  if (m_playbackState == next)
+    return;
+  bool wasBt = (m_playbackState == BluetoothActive);
+  m_playbackState = next;
+  emit playbackStateChanged();
+  if (wasBt != (next == BluetoothActive))
+    emit isBluetoothActiveChanged();
+}
+
+void PlaybackController::refreshSpotifyState(bool force) {
+  if (!force) {
+    if (m_playbackState == BluetoothWaiting || m_playbackState == BluetoothActive)
+      return;
+  }
+
+  PlaybackState next;
+  if (m_mprisService.isEmpty()) {
+    next = SpotifyUnavailable;
+  } else if (m_hasTrack) {
+    next = SpotifyActive;
+  } else {
+    next = SpotifyWaiting;
+  }
+  setPlaybackState(next);
 }

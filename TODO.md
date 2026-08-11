@@ -4,18 +4,18 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 
 ## Phase 1: D-Bus controller wiring
 
-- [x] **T1: PlaybackController — spotifyd discovery + MPRIS2 connection.** Discover spotifyd's D-Bus name dynamically (list names, match `org.mpris.MediaPlayer2.spotifyd.*` — the `$PID` suffix changes on restart). Add a `QDBusServiceWatcher` to detect when the name appears/vanishes. Once the MPRIS2 name is present, subscribe to `PropertiesChanged` on `org.mpris.MediaPlayer2.Player` and wire `title`, `artist`, `album`, `artUrl`, `position`, `duration`, `isSpotifyPlaying` from D-Bus property changes. Implement `play()`, `pause()`, `next()`, `previous()`, `seek()` as D-Bus method calls. Drive `playbackState` transitions: `SpotifyUnavailable` (no `rs.spotifyd.*` name) → `SpotifyReady` (Controls present, MPRIS2 absent) → `SpotifyActive` (MPRIS2 present).
+- [x] **T1: PlaybackController — spotifyd discovery + MPRIS2 connection.** Discover spotifyd's D-Bus name dynamically (list names, match `org.mpris.MediaPlayer2.spotifyd.*` — the `$PID` suffix changes on restart). Add a `QDBusServiceWatcher` to detect when the name appears/vanishes. Once the MPRIS2 name is present, subscribe to `PropertiesChanged` on `org.mpris.MediaPlayer2.Player` and wire `title`, `artist`, `album`, `artUrl`, `position`, `duration`, `isSpotifyPlaying` from D-Bus property changes. Implement `play()`, `pause()`, `next()`, `previous()`, `seek()` as D-Bus method calls. Drive `playbackState` transitions from MPRIS2 presence and content: `SpotifyUnavailable` (no MPRIS2 name) → `SpotifyWaiting` (name present, no track loaded) → `SpotifyActive` (track loaded).
   - Learn: `QDBusConnection::sessionBus()`, `QDBusConnectionInterface::registeredServiceNames()`, `QDBusServiceWatcher`, `QDBusInterface`, `QDBusArgument` for extracting metadata from `Metadata` a{sv} map, `Q_ENUM` state machines.
 
-- [ ] **T2: PlaybackController — Spotify Ready state + TransferPlayback.** When `rs.spotifyd.Controls` is present but MPRIS2 is absent, set `playbackState = SpotifyReady`. Implement `transferPlayback()` → calls `rs.spotifyd.Controls.TransferPlayback`. After calling it, wait for the MPRIS2 name to appear (via `QDBusServiceWatcher`). If it doesn't appear within N seconds, surface an error state. Transition to `SpotifyActive` when MPRIS2 arrives. `switchToSpotify()` calls `transferPlayback()` after pausing Bluetooth.
-  - Learn: custom D-Bus interfaces (non-MPRIS), `QDBusAbstractInterface::call()`, timeout handling, state machine for `SpotifyReady → SpotifyActive` transition.
+- [x] **T2: Delete `rs.spotifyd.Controls` + TransferPlayback (phone-driven Spotify).** Spotify is initiated from the phone, like Bluetooth — see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md). Removed the `Controls` name tracking, `transferPlayback()`, and the `SpotifyReady` state. Renamed to `SpotifyWaiting`, detected by content (no track loaded) rather than name absence, because MPRIS2 is present as soon as spotifyd is connected. `switchToSpotify()` re-queries the bus instead of transfering playback.
+  - Learn: custom D-Bus interfaces can be the wrong abstraction; verify name-presence assumptions against actual daemon behavior (the `SpotifyReady` window didn't exist in practice).
 
 - [ ] **T3: PlaybackController — Bluetooth Mode (opt-in) + A2DP detection.** Bluetooth Mode is NOT triggered automatically by a BT A2DP source connecting. It is only entered via `switchToBluetooth()`:
   - `switchToBluetooth()`: pauses spotifyd (MPRIS2 `Pause`), then checks if an A2DP transport exists. If yes → `BluetoothActive` with `pairedDeviceName` from BlueZ. If no → calls `BluetoothController.ensureDiscoverable()`, sets `BluetoothWaiting`. `ensureDiscoverable()` re-asserts `Adapter1.Set(Discoverable, true)` because BlueZ drops it on connect — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md).
   - When a phone connects during `BluetoothWaiting`: transition to `BluetoothActive`.
-  - On BT disconnect while in `BluetoothActive`: query the bus → `SpotifyActive` (MPRIS2 available), `SpotifyReady` (Controls only), or `SpotifyUnavailable` (neither).
+  - On BT disconnect while in `BluetoothActive`: query the bus → `SpotifyActive` (track loaded), `SpotifyWaiting` (MPRIS2 present, idle), or `SpotifyUnavailable` (neither).
   - On BT disconnect while in a Spotify state: do nothing.
-  - `switchToSpotify()`: if in `BluetoothActive`, pause/disconnect the A2DP transport, then call `transferPlayback()`.
+  - `switchToSpotify()`: if in `BluetoothActive`, pause/disconnect the A2DP transport, then re-query the bus for the appropriate Spotify state.
   - Learn: BlueZ D-Bus tree (`org.bluez.Media1`, `org.bluez.MediaTransport1`), `QDBusObjectManager` for tracking object additions/removals, opt-in state transitions, bus query on disconnect.
 
 - [ ] **T4: VolumeController — read real volume.** Currently `setVolume` shells out to `wpctl set-volume` but `volume` is a hardcoded 50. Run `wpctl get-volume @DEFAULT_AUDIO_SINK@` at startup and parse the output. Subscribe to volume changes via `wpctl status` polling (1s timer) or `pw-cli` events. Round-trip: `setVolume` should not trigger a read-back race.
@@ -43,13 +43,13 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 
 - [ ] **T10: NowPlaying — five-state view switching.** Drive the Now-Playing view from `PlaybackController.playbackState`:
   - `SpotifyUnavailable`: error message "Spotify service not running — check system config".
-  - `SpotifyReady`: device name, "Transfer Playback" button, hint text. Hide volume slider, scrubber, transport.
+  - `SpotifyWaiting`: hint text "Open Spotify on your phone — choose this speaker". Hide volume slider, scrubber, transport.
   - `SpotifyActive`: album art, metadata, scrubber, transport (driven by `isSpotifyPlaying`), volume slider.
   - `BluetoothWaiting`: "Discoverable — connect your phone". Hide scrubber, transport, volume.
   - `BluetoothActive`: "Controlled by <Paired Device>", hide scrubber + transport.
   - Learn: conditional layouts in QML, `states` and `transitions` for view mode switching, binding to `Q_ENUM` from QML.
 
-- [ ] **T11: NowPlaying — progress slider + time labels.** Bind the slider to `PlaybackController.position`/`duration`. Show `mm:ss` format for current and total. Slider is only shown in `SpotifyActive` state (hidden in `SinkMode`, `SpotifyReady`, `SpotifyUnavailable`). Add `onMoved` → `PlaybackController.seek(value)`.
+- [ ] **T11: NowPlaying — progress slider + time labels.** Bind the slider to `PlaybackController.position`/`duration`. Show `mm:ss` format for current and total. Slider is only shown in `SpotifyActive` state (hidden in `Bluetooth*`, `SpotifyWaiting`, `SpotifyUnavailable`). Add `onMoved` → `PlaybackController.seek(value)`.
   - Learn: `Slider` bindings, `Qt.formatTime` / custom `mm:ss` formatter, `visible` binding to enum state.
 
 - [ ] **T12: NowPlaying — marquee for long text.** If `title` or `artist` overflows the label width, scroll it horizontally. Use a `NumberAnimation` on `x` triggered by `elide: Text.ElideNone` + width check.
