@@ -202,3 +202,54 @@ QT_QPA_PLATFORM=xcb bierkistnRadio
 ```
 
 For the full kiosk experience, the system repo's cage configuration should launch `bierkistnRadio` as the only child process.
+
+---
+
+## 13. Implementation status — confirmed present
+
+Verified against `modules/bierkistn.nix` and `modules/hosts/piKistn.nix` in the system repo (as of this writing). The following contract items are correctly implemented:
+
+| Contract requirement | Where |
+| --- | --- |
+| `bierkistn-radio` flake input (`github:Xoechz/BierKistnRadio`, nixpkgs follows) | `bierkistn.nix` `flake-file.inputs` |
+| Launch `bierkistnRadio` as cage's single child | `piKistn.nix` `services.cage` (`program = inputs.bierkistn-radio.packages.${system}.bierkistnRadio`) |
+| `QT_QPA_PLATFORM=wayland` | `services.cage.environment` |
+| Writable home / `XDG_CACHE_HOME=/home/kistn/.cache` (ArtCache §7, §8) | `services.cage.environment` |
+| spotifyd as a **systemd user service** so it shares the kiosk user's session bus (MPRIS2 on session bus, §3) | `bierkistn.nix` Home Module `bierkistn` (`systemd.user.services.spotifyd`, `--config-path /etc/spotifyd.conf`) |
+| `use_mpris = true` + `device_name = hostname` + 320kbps | `environment.etc.spotifyd.conf` |
+| Always discoverable + pairable base policy (`Discoverable`/`Pairable`/`DiscoverableTimeout=0`) with `AutoEnable=true` (`Powered` implicit via `AutoEnable`) | `bierkistn.nix` `hardware.bluetooth.settings.General` |
+| Auto-accept pairing (NoInputNoOutput, kiosk has no display) | `systemd.services.bt-agent` |
+| A2DP-sink-only + best-effort AVRCP (roles, `auto-connect = []`, `enable-sbc-xq`, `dummy-avrcp-player`, `device.profile`) | `services.pipewire.wireplumber.extraConfig."10-bierkistn"` |
+| PipeWire/WirePlumber started under the kiosk session (no graphical-session dependency) | `systemd.user.services.{pipewire,wireplumber}.wantedBy = default.target` |
+| **Power controls** polkit grant (`org.freedesktop.login1.*` for Reboot/Power Off, §10) | `security.polkit.extraConfig` |
+| kiosk user in `bluetooth` / `networkmanager` / `audio` / `video` groups | `users.users.kistn.extraGroups` |
+
+## 14. Missing / not-yet-implemented configurations
+
+These contract items are **NOT** satisfied by the current system-module config:
+
+### 14.1 BlueZ polkit grant (BluetoothClient D-Bus actions) — gap
+
+The interface requires the kiosk user be authorized for the **BlueZ** actions `BluetoothClient`/`WifiController` call (see §3 *Polkit*):
+
+- `org.bluez.Adapter1.Set` — the `Discoverable=true` one-shot re-assertion on entering `BluetoothWaiting` (§3 *Bluetooth connection model*).
+- `org.bluez.MediaPlayer1` method calls (Play/Pause/Next/Previous best-effort AVRCP) — explicitly required by §3 *Best-effort AVRCP controls*.
+- `org.bluez.Device1.Disconnect` — the takeover "kick" (§3).
+
+The current `security.polkit.extraConfig` rule grants **only** `org.freedesktop.NetworkManager.*` and `org.freedesktop.login1.*`. **No BlueZ action is granted.**
+
+This may not bite in practice because BlueZ's net-effect is often gated by the caller being the active session user and a member of the `bluetooth` group (the kiosk user holds the active seat under cage and is in `extraGroups.bluetooth`), rather than by polkit. **Action:** verify on-device whether `Adapter1.Set Property Discoverable`, `Device1.Disconnect`, and `MediaPlayer1.Play/Pause/Next/Previous` succeed for the `kistn` user; if they are policy-rejected, add a polkit rule granting `org.bluez.*` to user `"kistn"` (e.g. prefix-match on `"org.bluez."`).
+
+### 14.2 Brightness control (still open, §9)
+
+§9 is marked "open" pending T16, and nothing has been supplied:
+
+- No writable `/sys/class/backlight/<panel>/brightness` is configured, and
+- No D-Bus backlight interface is exposed.
+
+The Pi's 7" panel is driven over **HDMI** (GPU output), which exposes no conventional `backlight` sysfs node — so a `wlr-brightness` (Wayland) or `ddcutil`/custom interface is the likely path, not `/sys/class/backlight`. **Action:** pick and expose one interface when the brightness Task is implemented; document which interface the app must target.
+
+### 14.3 Room-note: `Powered` and seat-monitoring
+
+- `Powered = true` is not set explicitly, but `AutoEnable = true` powers the adapter at boot — treated as satisfied, no action needed.
+- `monitor.bluez.seat-monitoring` is unset (default). The logind active-session note in §3 is a *conditional* ("if seat-monitoring interferes") — only address if Bluetooth nodes fail to appear in practice.
