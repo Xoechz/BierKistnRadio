@@ -146,6 +146,8 @@ Run tests: `scripts/test.sh` (or `ctest --test-dir build --output-on-failure` di
 
 Each controller/client owns one D-Bus concern, subscribes to signals, and republishes state via `Q_PROPERTY` (with `NOTIFY`) and `Q_INVOKABLE` methods. QML never calls D-Bus directly. Transport calls (play/pause/next/seek) route through `PlaybackController` to the active source; non-source concerns (takeover, Wi-Fi, volume) are reached directly but never D-Bus-called from QML. Keep controllers unit-testable in C++ — no QML dependency in the controller layer.
 
+**C++ code style:** braces are **required** for `if`/`for`/`while`/`do` blocks — always use `{ }` even for single-statement bodies. Never write brace-less single-statement bodies (e.g. `if (x) return;`).
+
 ## 10. Online Resources
 
 Spotifyd documentation: <https://docs.spotifyd.rs/Introduction.html>

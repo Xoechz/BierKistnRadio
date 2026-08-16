@@ -3,11 +3,9 @@
 #include <QObject>
 #include <QString>
 #include <qqmlintegration.h>
-#include <QDBusConnectionInterface>
-#include <QDBusMessage>
-#include <QDBusArgument>
-#include <QDBusObjectPath>
-#include <QTimer>
+
+#include "BluetoothClient.h"
+#include "SpotifyClient.h"
 
 class PlaybackController : public QObject {
   Q_OBJECT
@@ -15,16 +13,10 @@ class PlaybackController : public QObject {
   QML_NAMED_ELEMENT(PlaybackController)
 
   Q_PROPERTY(PlaybackState playbackState READ playbackState NOTIFY playbackStateChanged)
-  Q_PROPERTY(QString title READ title NOTIFY titleChanged)
-  Q_PROPERTY(QString artist READ artist NOTIFY artistChanged)
-  Q_PROPERTY(QString album READ album NOTIFY albumChanged)
-  Q_PROPERTY(QString artUrl READ artUrl NOTIFY artUrlChanged)
-  Q_PROPERTY(qint64 position READ position NOTIFY positionChanged)
-  Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
-  Q_PROPERTY(bool isSpotifyPlaying READ isSpotifyPlaying NOTIFY isSpotifyPlayingChanged)
-  Q_PROPERTY(bool isBluetoothActive READ isBluetoothActive NOTIFY isBluetoothActiveChanged)
-  Q_PROPERTY(QString pairedDeviceName READ pairedDeviceName NOTIFY
-                 pairedDeviceNameChanged)
+  Q_PROPERTY(bool isBluetoothActive READ isBluetoothActive NOTIFY
+                 isBluetoothActiveChanged)
+  Q_PROPERTY(SpotifyClient *spotify READ spotify CONSTANT)
+  Q_PROPERTY(BluetoothClient *bluetooth READ bluetooth CONSTANT)
 
 public:
   enum PlaybackState {
@@ -39,15 +31,9 @@ public:
   explicit PlaybackController(QObject *parent = nullptr);
 
   PlaybackState playbackState() const;
-  QString title() const;
-  QString artist() const;
-  QString album() const;
-  QString artUrl() const;
-  qint64 position() const;
-  qint64 duration() const;
-  bool isSpotifyPlaying() const;
   bool isBluetoothActive() const;
-  QString pairedDeviceName() const;
+  SpotifyClient *spotify() const;
+  BluetoothClient *bluetooth() const;
 
   Q_INVOKABLE void play();
   Q_INVOKABLE void pause();
@@ -59,38 +45,15 @@ public:
 
 signals:
   void playbackStateChanged();
-  void titleChanged();
-  void artistChanged();
-  void albumChanged();
-  void artUrlChanged();
-  void positionChanged();
-  void durationChanged();
-  void isSpotifyPlayingChanged();
   void isBluetoothActiveChanged();
-  void pairedDeviceNameChanged();
 
 private:
   PlaybackState m_playbackState = SpotifyUnavailable;
-  QString m_title;
-  QString m_artist;
-  QString m_album;
-  QString m_artUrl;
-  qint64 m_position = 0;
-  qint64 m_duration = 0;
-  bool m_isSpotifyPlaying = false;
-  bool m_hasTrack = false;
-  QString m_pairedDeviceName;
-  QString m_mprisService;
-  QDBusObjectPath m_trackId;
+  SpotifyClient *m_spotify = nullptr;
+  BluetoothClient *m_bluetooth = nullptr;
 
-  void fetchInitialMprisState();
-  void subscribeToMpris();
-  void unsubscribeFromMpris();
-  void discoverServices();
-  void onServiceOwnerChanged(const QString &name, const QString &oldOwner, const QString &newOwner);
-  void onMprisPropertiesChanged(const QString &interface, const QVariantMap &changed, const QStringList &invalidated);
-  void updateFromMetadata(const QVariantMap &metadata);
-  void updatePlaybackStatus(const QString &status);
+  void onSpotifyChanged();
+  void onBluetoothChanged();
+  void refreshSpotifyState();
   void setPlaybackState(PlaybackState next);
-  void refreshSpotifyState(bool force = false);
 };

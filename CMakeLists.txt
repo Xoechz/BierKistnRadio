@@ -27,8 +27,9 @@ qt_policy(SET QTP0004 NEW)
 # --- Core library: C++ controllers + QML module ---
 qt_add_library(bierkistn_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PlaybackController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/SpotifyClient.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/BluetoothClient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/WifiController.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/BluetoothController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/VolumeController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/ArtCache.cpp
 )

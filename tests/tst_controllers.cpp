@@ -1,6 +1,7 @@
 #include "ArtCache.h"
-#include "BluetoothController.h"
+#include "BluetoothClient.h"
 #include "PlaybackController.h"
+#include "SpotifyClient.h"
 #include "VolumeController.h"
 #include "WifiController.h"
 #include <QtTest/QtTest>
@@ -11,7 +12,8 @@ class TestControllers : public QObject {
 private slots:
   void testPlaybackControllerDefaults();
   void testWifiControllerDefaults();
-  void testBluetoothControllerDefaults();
+  void testBluetoothClientDefaults();
+  void testSpotifyClientDefaults();
   void testVolumeControllerSetVolume();
   void testVolumeControllerClamping();
   void testArtCacheDirCreation();
@@ -20,14 +22,9 @@ private slots:
 void TestControllers::testPlaybackControllerDefaults() {
   PlaybackController c;
   QCOMPARE(c.playbackState(), PlaybackController::SpotifyUnavailable);
-  QCOMPARE(c.title(), QString());
-  QCOMPARE(c.artist(), QString());
-  QCOMPARE(c.album(), QString());
-  QCOMPARE(c.artUrl(), QString());
   QCOMPARE(c.isBluetoothActive(), false);
-  QCOMPARE(c.isSpotifyPlaying(), false);
-  QCOMPARE(c.position(), qint64(0));
-  QCOMPARE(c.duration(), qint64(0));
+  QVERIFY(c.spotify() != nullptr);
+  QVERIFY(c.bluetooth() != nullptr);
 }
 
 void TestControllers::testWifiControllerDefaults() {
@@ -38,10 +35,26 @@ void TestControllers::testWifiControllerDefaults() {
   QCOMPARE(c.networks(), QStringList());
 }
 
-void TestControllers::testBluetoothControllerDefaults() {
-  BluetoothController c;
+void TestControllers::testBluetoothClientDefaults() {
+  BluetoothClient c;
   QCOMPARE(c.connectedDeviceName(), QString());
   QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(c.statusPublished(), false);
+  QCOMPARE(c.trackPublished(), false);
+  QCOMPARE(c.muted(), false);
+}
+
+void TestControllers::testSpotifyClientDefaults() {
+  SpotifyClient c;
+  QCOMPARE(c.title(), QString());
+  QCOMPARE(c.artist(), QString());
+  QCOMPARE(c.album(), QString());
+  QCOMPARE(c.artUrl(), QString());
+  QCOMPARE(c.isSpotifyPlaying(), false);
+  QCOMPARE(c.position(), qint64(0));
+  QCOMPARE(c.duration(), qint64(0));
+  QCOMPARE(c.hasTrack(), false);
+  QCOMPARE(c.isAvailable(), false);
 }
 
 void TestControllers::testVolumeControllerSetVolume() {

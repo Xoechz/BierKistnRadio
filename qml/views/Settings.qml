@@ -71,8 +71,8 @@ Page {
                 }
 
                 Label {
-                    text: BluetoothController.connectedDeviceName
-                        ? "Connected: " + BluetoothController.connectedDeviceName
+                    text: PlaybackController.bluetooth.connectedDeviceName
+                        ? "Connected: " + PlaybackController.bluetooth.connectedDeviceName
                         : "Pair from your phone — the speaker is discoverable"
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.secondaryTextColor
