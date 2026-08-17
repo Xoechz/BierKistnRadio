@@ -5,6 +5,8 @@
 #include "VolumeController.h"
 #include "WifiController.h"
 #include <QDBusObjectPath>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QtTest/QtTest>
 #include <functional>
 
@@ -26,6 +28,20 @@ private slots:
   void testWifiControllerSurfacesConnectError();
   void testWifiControllerStaticHelpers();
   void testBluetoothClientDefaults();
+  void testBluetoothTracksConnectedDevices();
+  void testBluetoothTakeoverDetection();
+  void testBluetoothTakeoverExposesNames();
+  void testBluetoothAdapterStateObserved();
+  void testBluetoothEnsureDiscoverableCallsSet();
+  void testBluetoothResolveTakeoverKeepDisconnectsNew();
+  void testBluetoothResolveTakeoverSwitchDisconnectsOld();
+  void testBluetoothAvrcpStateFromPlayer();
+  void testBluetoothAvrcpOnlyStatusNoTrack();
+  void testBluetoothTransportTargetsActiveDevice();
+  void testBluetoothMuteDiscoversNodeAndMutes();
+  void testBluetoothUnmuteIssuesSetMuteZero();
+  void testBluetoothNodeIdFromPwDump();
+  void testBluetoothAvrcpResetsOnDeviceChange();
   void testSpotifyClientDefaults();
   void testVolumeControllerDefaults();
   void testVolumeControllerParse();
@@ -406,6 +422,379 @@ void TestControllers::testBluetoothClientDefaults() {
   QCOMPARE(c.statusPublished(), false);
   QCOMPARE(c.trackPublished(), false);
   QCOMPARE(c.muted(), false);
+}
+
+void TestControllers::testBluetoothTracksConnectedDevices() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  const QVariantMap props{{QStringLiteral("Name"), QStringLiteral("Elias S25 FE")},
+                          {QStringLiteral("Alias"), QStringLiteral("Elias")},
+                          {QStringLiteral("Connected"), QVariant(true)}};
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"), props);
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("Elias"));
+  QCOMPARE(c.takeoverPending(), false);
+
+  // Disconnect -> no active device.
+  c.bluezPropertyChangedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                                {{QStringLiteral("Connected"), QVariant(false)}});
+  QCOMPARE(c.connectedDeviceName(), QString());
+}
+
+void TestControllers::testBluetoothTakeoverDetection() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  const QString dB = QStringLiteral("/org/bluez/hci0/dev_11_22_33_44_55_66");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  QCOMPARE(c.takeoverPending(), false);
+
+  // Second device connects while one is active -> takeover pending.
+  c.bluezObjectAddedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("B")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  QCOMPARE(c.takeoverPending(), true);
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("A")); // active stays A
+
+  // One disconnects -> takeover resolves back to false.
+  c.bluezPropertyChangedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                                {{QStringLiteral("Connected"), QVariant(false)}});
+  QCOMPARE(c.takeoverPending(), false);
+}
+
+void TestControllers::testBluetoothTakeoverExposesNames() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  const QString dB = QStringLiteral("/org/bluez/hci0/dev_11_22_33_44_55_66");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  // Single active device: no incoming to name.
+  QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(c.takeoverIncomingName(), QString());
+
+  // Second device connects: current stays A, incoming is B.
+  c.bluezObjectAddedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("B")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  QCOMPARE(c.takeoverPending(), true);
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("A"));
+  QCOMPARE(c.takeoverIncomingName(), QStringLiteral("B"));
+
+  // Resolving clears the incoming-name surface (dialog is done).
+  c.resolveTakeover(BluetoothClient::KeepCurrent);
+  QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(c.takeoverIncomingName(), QString());
+}
+
+void TestControllers::testBluetoothAdapterStateObserved() {
+  BluetoothClient c;
+  const QString adapter = QStringLiteral("/org/bluez/hci0");
+  // Defaults: adapter not powered/discoverable/pairable until observed.
+  QCOMPARE(c.adapterPowered(), false);
+  QCOMPARE(c.adapterDiscoverable(), false);
+  QCOMPARE(c.adapterPairable(), false);
+
+  c.bluezObjectAddedForTest(adapter, QStringLiteral("org.bluez.Adapter1"),
+                            {{QStringLiteral("Powered"), QVariant(true)},
+                             {QStringLiteral("Discoverable"), QVariant(true)},
+                             {QStringLiteral("Pairable"), QVariant(true)}});
+  QCOMPARE(c.adapterPowered(), true);
+  QCOMPARE(c.adapterDiscoverable(), true);
+  QCOMPARE(c.adapterPairable(), true);
+
+  // Observe a later change (BlueZ drops Discoverable on connect).
+  c.bluezPropertyChangedForTest(adapter, QStringLiteral("org.bluez.Adapter1"),
+                                {{QStringLiteral("Discoverable"), QVariant(false)}});
+  QCOMPARE(c.adapterPowered(), true);
+  QCOMPARE(c.adapterDiscoverable(), false);
+  QCOMPARE(c.adapterPairable(), true);
+}
+
+void TestControllers::testBluetoothEnsureDiscoverableCallsSet() {
+  BluetoothClient c;
+  bool setCalled = false;
+  c.setDbusCallableForTest(
+      [&setCalled](const QString &, const QString &objectPath,
+                   const QString &interface, const QString &method,
+                   const QVariantList &args,
+                   const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.bluez.Adapter1") &&
+            method == QStringLiteral("Set")) {
+          setCalled = true;
+          Q_UNUSED(objectPath);
+          QVERIFY(args.value(0).toString() == QStringLiteral("Discoverable"));
+          QVERIFY(args.value(1).canConvert<bool>());
+          QVERIFY(args.value(1).toBool());
+          (void)objectPath;
+        }
+        onFinished(QVariant(), QString());
+      });
+  c.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0"),
+                            QStringLiteral("org.bluez.Adapter1"), QVariantMap());
+  c.ensureDiscoverable();
+  QVERIFY2(setCalled, "ensureDiscoverable() must call Adapter1.Set(Discoverable, true)");
+}
+
+void TestControllers::testBluetoothResolveTakeoverKeepDisconnectsNew() {
+  BluetoothClient c;
+  QStringList disconnected;
+  c.setDbusCallableForTest(
+      [&disconnected](const QString &, const QString &objectPath,
+                      const QString &interface, const QString &method,
+                      const QVariantList &,
+                      const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.bluez.Device1") &&
+            method == QStringLiteral("Disconnect")) {
+          disconnected.append(objectPath);
+        }
+        onFinished(QVariant(), QString());
+      });
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  const QString dB = QStringLiteral("/org/bluez/hci0/dev_11_22_33_44_55_66");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  c.bluezObjectAddedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("B")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  QCOMPARE(c.takeoverPending(), true);
+
+  c.resolveTakeover(BluetoothClient::KeepCurrent);
+  QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(disconnected.size(), 1);
+  QVERIFY(disconnected.contains(dB)); // the *new* device is kicked
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("A"));
+}
+
+void TestControllers::testBluetoothResolveTakeoverSwitchDisconnectsOld() {
+  BluetoothClient c;
+  QStringList disconnected;
+  c.setDbusCallableForTest(
+      [&disconnected](const QString &, const QString &objectPath,
+                      const QString &interface, const QString &method,
+                      const QVariantList &,
+                      const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.bluez.Device1") &&
+            method == QStringLiteral("Disconnect")) {
+          disconnected.append(objectPath);
+        }
+        onFinished(QVariant(), QString());
+      });
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  const QString dB = QStringLiteral("/org/bluez/hci0/dev_11_22_33_44_55_66");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  c.bluezObjectAddedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("B")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+
+  c.resolveTakeover(BluetoothClient::SwitchToNew);
+  QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(disconnected.size(), 1);
+  QVERIFY(disconnected.contains(dA)); // the *old* device is kicked
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("B"));
+}
+
+void TestControllers::testBluetoothAvrcpStateFromPlayer() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+
+  const QVariantMap track{{QStringLiteral("Title"), QStringLiteral("Stormlight")},
+                          {QStringLiteral("Artist"), QStringLiteral("Night")},
+                          {QStringLiteral("Album"), QStringLiteral("Flux")},
+                          {QStringLiteral("Duration"), QVariant(200000u)}};
+  c.bluezObjectAddedForTest(dA + QStringLiteral("/player0"),
+                            QStringLiteral("org.bluez.MediaPlayer1"),
+                            {{QStringLiteral("Status"), QStringLiteral("playing")},
+                             {QStringLiteral("Track"), track},
+                             {QStringLiteral("Position"), QVariant(30000u)}});
+  QCOMPARE(c.statusPublished(), true);
+  QCOMPARE(c.isBluetoothPlaying(), true);
+  QCOMPARE(c.trackPublished(), true);
+  QCOMPARE(c.trackTitle(), QStringLiteral("Stormlight"));
+  QCOMPARE(c.trackArtist(), QStringLiteral("Night"));
+  QCOMPARE(c.trackAlbum(), QStringLiteral("Flux"));
+  QCOMPARE(c.duration(), qint64(200000));
+  QCOMPARE(c.positionPublished(), true);
+  QCOMPARE(c.position(), qint64(30000));
+
+  // Position updates without re-publishing the whole track.
+  c.bluezPropertyChangedForTest(dA + QStringLiteral("/player0"),
+                                QStringLiteral("org.bluez.MediaPlayer1"),
+                                {{QStringLiteral("Position"), QVariant(45000u)}});
+  QCOMPARE(c.position(), qint64(45000));
+}
+
+void TestControllers::testBluetoothAvrcpOnlyStatusNoTrack() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  c.bluezObjectAddedForTest(dA + QStringLiteral("/player0"),
+                            QStringLiteral("org.bluez.MediaPlayer1"),
+                            {{QStringLiteral("Status"), QStringLiteral("paused")}});
+  QCOMPARE(c.statusPublished(), true);
+  QCOMPARE(c.isBluetoothPlaying(), false);
+  QCOMPARE(c.trackPublished(), false);
+  QCOMPARE(c.trackTitle(), QString());
+  QCOMPARE(c.positionPublished(), false);
+}
+
+void TestControllers::testBluetoothTransportTargetsActiveDevice() {
+  BluetoothClient c;
+  QString capturedMethod;
+  QString capturedPath;
+  c.setDbusCallableForTest(
+      [&capturedMethod, &capturedPath](
+          const QString &, const QString &objectPath, const QString &interface,
+          const QString &method, const QVariantList &,
+          const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.bluez.MediaPlayer1")) {
+          capturedMethod = method;
+          capturedPath = objectPath;
+        }
+        onFinished(QVariant(), QString());
+      });
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  c.bluezObjectAddedForTest(dA + QStringLiteral("/player0"),
+                            QStringLiteral("org.bluez.MediaPlayer1"),
+                            {{QStringLiteral("Status"), QStringLiteral("playing")}});
+
+  c.play();
+  QCOMPARE(capturedMethod, QStringLiteral("Play"));
+  QCOMPARE(capturedPath, dA + QStringLiteral("/player0"));
+  c.pause();
+  QCOMPARE(capturedMethod, QStringLiteral("Pause"));
+  c.next();
+  QCOMPARE(capturedMethod, QStringLiteral("Next"));
+  c.previous();
+  QCOMPARE(capturedMethod, QStringLiteral("Previous"));
+}
+
+void TestControllers::testBluetoothMuteDiscoversNodeAndMutes() {
+  BluetoothClient c;
+  const QString address = QStringLiteral("AA:BB:CC:DD:EE:FF");
+  const QByteArray pwDump =
+      "[{\"id\":35,\"type\":\"PipeWire:Interface:Node\",\"info\":{\"props\":"
+      "{\"api.bluez5.address\":\"AA:BB:CC:DD:EE:FF\",\"node.name\":"
+      "\"bluez_output.AA_BB_CC_DD_EE_FF.a2dp-sink\"}}},{\"id\":41,"
+      "\"type\":\"PipeWire:Interface:Node\",\"info\":{\"props\":{\"node.name\":"
+      "\"alsa_output.platform-soc_audio.analog-stereo\"}}}]";
+  c.setDbusCallableForTest(
+      [](const QString &, const QString &, const QString &, const QString &,
+         const QVariantList &,
+         const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        onFinished(QVariant(), QString());
+      });
+  QStringList calls;
+  c.setCommandRunnerForTest(
+      [&calls, pwDump](const QStringList &args,
+                       const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args.join(QStringLiteral(" ")));
+        if (args.first() == QStringLiteral("pw-dump")) {
+          onFinished(pwDump);
+        } else {
+          onFinished(QByteArray());
+        }
+      });
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Address"), address},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+
+  c.setMuted(true);
+  QCOMPARE(c.muted(), true);
+  QCOMPARE(calls.size(), 2);
+  QCOMPARE(calls, (QStringList{"pw-dump",
+                               QStringLiteral("wpctl set-mute 35 1")}));
+}
+
+void TestControllers::testBluetoothUnmuteIssuesSetMuteZero() {
+  BluetoothClient c;
+  const QString address = QStringLiteral("AA:BB:CC:DD:EE:FF");
+  const QByteArray pwDump =
+      "[{\"id\":35,\"type\":\"PipeWire:Interface:Node\",\"info\":{\"props\":"
+      "{\"api.bluez5.address\":\"AA:BB:CC:DD:EE:FF\"}}}]";
+  c.setDbusCallableForTest(
+      [](const QString &, const QString &, const QString &, const QString &,
+         const QVariantList &,
+         const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        onFinished(QVariant(), QString());
+      });
+  QStringList calls;
+  c.setCommandRunnerForTest(
+      [&calls, pwDump](const QStringList &args,
+                       const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args.join(QStringLiteral(" ")));
+        if (args.first() == QStringLiteral("pw-dump")) {
+          onFinished(pwDump);
+        } else {
+          onFinished(QByteArray());
+        }
+      });
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Address"), address},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+
+  c.setMuted(false);
+  QCOMPARE(c.muted(), false);
+  QCOMPARE(calls.size(), 2);
+  QCOMPARE(calls.last(), QStringLiteral("wpctl set-mute 35 0"));
+}
+
+void TestControllers::testBluetoothNodeIdFromPwDump() {
+  const QString address = QStringLiteral("AA:BB:CC:DD:EE:FF");
+  const QByteArray dump =
+      "[{\"id\":35,\"type\":\"PipeWire:Interface:Node\",\"info\":{\"props\":"
+      "{\"api.bluez5.address\":\"AA:BB:CC:DD:EE:FF\",\"node.name\":"
+      "\"bluez_output.AA_BB_CC_DD_EE_FF.a2dp-sink\"}}},{\"id\":41,"
+      "\"type\":\"PipeWire:Interface:Node\",\"info\":{\"props\":{\"node.name\":"
+      "\"alsa_output.platform-soc_audio.analog-stereo\"}}}]";
+  QCOMPARE(BluetoothClient::bluetoothNodeIdFromPwDump(dump, address), 35);
+  QCOMPARE(BluetoothClient::bluetoothNodeIdFromPwDump(
+               dump, QStringLiteral("00:00:00:00:00:00")),
+           -1);
+  QCOMPARE(BluetoothClient::bluetoothNodeIdFromPwDump(
+               QByteArrayLiteral("not json"), address),
+           -1);
+}
+
+void TestControllers::testBluetoothAvrcpResetsOnDeviceChange() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  c.bluezObjectAddedForTest(dA + QStringLiteral("/player0"),
+                            QStringLiteral("org.bluez.MediaPlayer1"),
+                            {{QStringLiteral("Status"), QStringLiteral("playing")},
+                             {QStringLiteral("Track"),
+                              QVariant(QVariantMap{{QStringLiteral("Title"),
+                                                     QStringLiteral("Song")}})},
+                             {QStringLiteral("Position"), QVariant(100u)}});
+  QCOMPARE(c.statusPublished(), true);
+  QCOMPARE(c.trackPublished(), true);
+  QCOMPARE(c.positionPublished(), true);
+
+  // Device is dropped entirely -> AVRCP state must go quiet (no stale metadata).
+  c.bluezObjectRemovedForTest(dA, QStringLiteral("org.bluez.Device1"));
+  QCOMPARE(c.connectedDeviceName(), QString());
+  QCOMPARE(c.statusPublished(), false);
+  QCOMPARE(c.trackPublished(), false);
+  QCOMPARE(c.positionPublished(), false);
+  QCOMPARE(c.trackTitle(), QString());
 }
 
 void TestControllers::testSpotifyClientDefaults() {
