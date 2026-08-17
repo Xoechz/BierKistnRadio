@@ -5,6 +5,7 @@
 #include "VolumeController.h"
 #include "WifiController.h"
 #include <QtTest/QtTest>
+#include <functional>
 
 class TestControllers : public QObject {
   Q_OBJECT
@@ -15,8 +16,13 @@ private slots:
   void testWifiControllerDefaults();
   void testBluetoothClientDefaults();
   void testSpotifyClientDefaults();
-  void testVolumeControllerSetVolume();
+  void testVolumeControllerDefaults();
+  void testVolumeControllerParse();
+  void testVolumeControllerReadsFromWpctl();
+  void testVolumeControllerPollsExternalChanges();
+  void testVolumeControllerIssuesSetVolumeCommand();
   void testVolumeControllerClamping();
+  void testVolumeControllerNoReadBackRace();
   void testArtCacheDirCreation();
 };
 
@@ -123,21 +129,106 @@ void TestControllers::testSpotifyClientDefaults() {
   QCOMPARE(c.isAvailable(), false);
 }
 
-void TestControllers::testVolumeControllerSetVolume() {
+void TestControllers::testVolumeControllerDefaults() {
   VolumeController c;
-  QCOMPARE(c.volume(), 50);
+  QCOMPARE(c.volume(), 0);
+}
 
+void TestControllers::testVolumeControllerParse() {
+  QCOMPARE(VolumeController::parseVolume("Volume: 0.65\n"), 65);
+  QCOMPARE(VolumeController::parseVolume("Volume: 1.00 [MUTED]\n"), 100);
+  QCOMPARE(VolumeController::parseVolume("Volume: 0.00\n"), 0);
+  QCOMPARE(VolumeController::parseVolume("Volume: 0.5\n"), 50);
+  QCOMPARE(VolumeController::parseVolume("Volume: 2.00\n"), 150);
+  QCOMPARE(VolumeController::parseVolume("garbage\n"), -1);
+  QCOMPARE(VolumeController::parseVolume(""), -1);
+}
+
+void TestControllers::testVolumeControllerReadsFromWpctl() {
+  VolumeController c;
+  c.setCommandRunnerForTest(
+      [](const QStringList &, const std::function<void(const QByteArray &)> &onFinished) {
+        onFinished("Volume: 0.65\n");
+      });
+  c.pollNowForTest();
+  QCOMPARE(c.volume(), 65);
+}
+
+void TestControllers::testVolumeControllerPollsExternalChanges() {
+  VolumeController c;
+  QByteArray current("Volume: 0.65\n");
+  c.setCommandRunnerForTest(
+      [&current](const QStringList &, const std::function<void(const QByteArray &)> &onFinished) {
+        onFinished(current);
+      });
+  c.pollNowForTest();
+  QCOMPARE(c.volume(), 65);
+
+  current = "Volume: 0.80\n";
+  c.pollNowForTest();
+  QCOMPARE(c.volume(), 80);
+}
+
+void TestControllers::testVolumeControllerIssuesSetVolumeCommand() {
+  VolumeController c;
+  QList<QStringList> calls;
+  c.setCommandRunnerForTest(
+      [&calls](const QStringList &args,
+               const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args);
+        onFinished(QByteArray());
+      });
   c.setVolume(75);
   QCOMPARE(c.volume(), 75);
+  QCOMPARE(calls.size(), 1);
+  QCOMPARE(calls.first(), (QStringList{"set-volume", "@DEFAULT_AUDIO_SINK@", "75%"}));
 }
 
 void TestControllers::testVolumeControllerClamping() {
   VolumeController c;
+  QList<QStringList> calls;
+  c.setCommandRunnerForTest(
+      [&calls](const QStringList &args,
+               const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args);
+        onFinished(QByteArray());
+      });
   c.setVolume(200);
   QCOMPARE(c.volume(), 150);
+  QCOMPARE(calls.last(), (QStringList{"set-volume", "@DEFAULT_AUDIO_SINK@", "150%"}));
 
   c.setVolume(-10);
   QCOMPARE(c.volume(), 0);
+  QCOMPARE(calls.last(), (QStringList{"set-volume", "@DEFAULT_AUDIO_SINK@", "0%"}));
+}
+
+void TestControllers::testVolumeControllerNoReadBackRace() {
+  VolumeController c;
+  std::function<void(const QByteArray &)> pendingReadFinish;
+  QList<QStringList> calls;
+  c.setCommandRunnerForTest(
+      [&calls, &pendingReadFinish](const QStringList &args,
+                                   const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args);
+        if (args.first() == "get-volume") {
+          pendingReadFinish = onFinished; // hold the read open (in flight)
+        } else {
+          onFinished(QByteArray());
+        }
+      });
+
+  // A poll read is issued and stays in flight...
+  c.pollNowForTest();
+  QVERIFY(pendingReadFinish);
+  QCOMPARE(c.volume(), 0);
+
+  // ...then the user drags the slider before that stale read lands.
+  c.setVolume(80);
+  QCOMPARE(c.volume(), 80);
+
+  // The stale read completes with the *old* value; must be discarded.
+  pendingReadFinish("Volume: 0.50\n");
+  QCOMPARE(c.volume(), 80);
 }
 
 void TestControllers::testArtCacheDirCreation() {

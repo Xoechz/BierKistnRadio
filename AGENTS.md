@@ -138,7 +138,7 @@ The core library (`bierkistn_core`) — controllers + QML module — is a static
 
 For D-Bus integration tests (when controllers get D-Bus wiring): run a private `dbus-daemon --session` on an isolated address, register mock MPRIS2/NM/BlueZ services on it, and have controllers connect via `QDBusConnection::connectToBus()` rather than hardcoding `sessionBus()`.
 
-Run tests: `scripts/test.sh` (or `ctest --test-dir build --output-on-failure` directly).
+Run tests via `nix develop --command bash -c 'scripts/test.sh'` — the script already runs the build itself, so **do not** run `scripts/build.sh` first. (Running `nix develop --command bash -c 'ctest --test-dir build --output-on-failure'` directly is fine for re-running without touching the build.)
 
 ## 9. Controller Conventions
 
