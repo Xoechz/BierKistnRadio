@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import QtQuick.VirtualKeyboard
 import BierKistnRadio
 
 ApplicationWindow {
@@ -44,5 +45,16 @@ ApplicationWindow {
                 Layout.fillHeight: true
             }
         }
+    }
+
+    TakeoverDialog {}
+
+    InputPanel {
+        id: keyboardPanel
+        z: parent.z + 100
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        visible: Qt.inputMethod.visible
     }
 }

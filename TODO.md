@@ -48,7 +48,7 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 - [x] **T11: RightSidebar — brightness, volume, dark mode, statuses.** New `RightSidebar.qml`. Top-to-bottom: vertical brightness slider (0–100%, label shows %), vertical volume slider (0–150%, label shows %, tick mark at 100%), dark mode toggle (small switch), Bluetooth status (two-line: "Bluetooth" label + dynamic text), Wi-Fi status (two-line: "Wi-Fi" label + dynamic text), "Wifi Settings" button (opens `WifiDialog`). All always visible, source-independent. Bind `VolumeController.volume`/`setVolume`, `PlaybackController.bluetooth.*`, `WifiController.connected`/`ssid`.
   - Learn: `Slider` (vertical orientation), `Layout` in a `ColumnLayout`, binding to controller properties.
 
-- [ ] **T12: LeftColumn — metadata display.** New `LeftColumn.qml`. Content switches on `PlaybackController.playbackState`:
+- [x] **T12: LeftColumn — metadata display.** New `LeftColumn.qml`. Content switches on `PlaybackController.playbackState`:
   - `SpotifyUnavailable`: error text "Spotify service not running — check system config"
   - `SpotifyWaiting`: hint text "Open Spotify on your phone — choose this speaker"
   - `SpotifyActive`: Track title (bold, large, word-wrap max 3 lines then elide), Artist, Album, Release Date
@@ -57,28 +57,28 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
   - `BluetoothActive` + `!trackPublished`: "Controlled by \<device name\>" as title, "No metadata available" as subtitle
   - Learn: QML `states` with `PropertyChanges`, `Text { wrapMode: Text.WordWrap; maximumLineCount: 3; elide: Text.ElideRight }`.
 
-- [ ] **T13: CenterColumn — album art + progress + transport.** New `CenterColumn.qml`. Top: 400×400 `Image` with `fillMode: Image.PreserveAspectFit`, `asynchronous: true`. Source: `spotify.artUrl` (SpotifyActive) or fallback SVG (`qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg`) when empty. Below art: progress element (see T14). Below progress: transport buttons (see T15).
+- [x] **T13: CenterColumn — album art + progress + transport.** New `CenterColumn.qml`. Top: 400×400 `Image` with `fillMode: Image.PreserveAspectFit`, `asynchronous: true`. Source: `spotify.artUrl` (SpotifyActive) or fallback SVG (`qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg`) when empty. Below art: progress element (see T14). Below progress: transport buttons (see T15).
   - Learn: `Image` with `asynchronous`, `fillMode`, `source` binding with ternary on state.
 
-- [ ] **T14: CenterColumn — progress scrubber / passive bar.** Inside `CenterColumn`: `SpotifyActive` → interactive `Slider` (0–`duration/1000` seconds), thumb, time labels flanking (`m:ss` current left, `m:ss` total right), `onMoved: PlaybackController.seek(value * 1000)`. `BluetoothActive` + `positionPublished` + `duration > 0` → passive non-interactive bar (no thumb), time labels (`m:ss` current / total). `BluetoothActive` + `positionPublished` + `duration <= 0` → passive bar, no labels. All other states: no progress element.
+- [x] **T14: CenterColumn — progress scrubber / passive bar.** Inside `CenterColumn`: `SpotifyActive` → interactive `Slider` (0–`duration/1000` seconds), thumb, time labels flanking (`m:ss` current left, `m:ss` total right), `onMoved: PlaybackController.seek(value * 1000)`. `BluetoothActive` + `positionPublished` + `duration > 0` → passive non-interactive bar (no thumb), time labels (`m:ss` current / total). `BluetoothActive` + `positionPublished` + `duration <= 0` → passive bar, no labels. All other states: no progress element.
   - Learn: `Slider` vs `ProgressBar`, `Qt.formatDateTime` or custom `m:ss` formatter, conditional visibility.
 
-- [ ] **T15: CenterColumn — transport buttons.** Inside `CenterColumn`, below progress: `SpotifyActive` → Play/Pause + Next + Previous buttons (64×64 touch targets). Play/Pause glyph reflects `isSpotifyPlaying`. `BluetoothActive` + `statusPublished` → same three buttons (best-effort AVRCP). Play/Pause glyph reflects `isBluetoothPlaying`. All other states: no transport. Buttons call `PlaybackController.play()`/`pause()`/`next()`/`previous()`.
+- [x] **T15: CenterColumn — transport buttons.** Inside `CenterColumn`, below progress: `SpotifyActive` → Play/Pause + Next + Previous buttons (64×64 touch targets). Play/Pause glyph reflects `isSpotifyPlaying`. `BluetoothActive` + `statusPublished` → same three buttons (best-effort AVRCP). Play/Pause glyph reflects `isBluetoothPlaying`. All other states: no transport. Buttons call `PlaybackController.play()`/`pause()`/`next()`/`previous()`.
   - Learn: `Icon` or unicode glyphs, `MouseArea` / `Button`, conditional `visible` on state.
 
-- [ ] **T16: Fallback album art SVG.** Create `qml/assets/fallback-album.svg` — a simple speaker/radio icon suitable for a 400×400 container. Embed as Qt resource in `CMakeLists.txt`.
+- [x] **T16: Fallback album art SVG.** Create `qml/assets/fallback-album.svg` — a simple speaker/radio icon suitable for a 400×400 container. Embed as Qt resource in `CMakeLists.txt`.
   - Learn: SVG authoring, `qt_add_qml_module` resource embedding.
 
-- [ ] **T17: WifiDialog — SSID list + password + OSK.** New `WifiDialog.qml` (`Popup` or `Dialog`). Auto-scans on open (`WifiController.scan()`). Scrollable `ListView` of `WifiController.networks`: each row shows SSID name + signal strength bars (▂▄▆█: 0–25% → ▂, 25–50% → ▄, 50–75% → ▆, 75–100% → █). Connected SSID gets a checkmark. Tap an SSID → password `TextField` with OSK (`QtQuick.VirtualKeyboard` auto-pops on focus). "Connect" button calls `WifiController.connect(ssid, password)`. On success → dialog closes. On error → error text in dialog, stays open. Manual refresh button at top.
+- [x] **T17: WifiDialog — SSID list + password + OSK.** New `WifiDialog.qml` (`Popup` or `Dialog`). Auto-scans on open (`WifiController.scan()`). Scrollable `ListView` of `WifiController.networks`: each row shows SSID name + signal strength bars (▂▄▆█: 0–25% → ▂, 25–50% → ▄, 50–75% → ▆, 75–100% → █). Connected SSID gets a checkmark. Tap an SSID → password `TextField` with OSK (`QtQuick.VirtualKeyboard` auto-pops on focus). "Connect" button calls `WifiController.connect(ssid, password)`. On success → dialog closes. On error → error text in dialog, stays open. Manual refresh button at top.
   - Learn: `Popup`/`Dialog`, `ListView` + delegate, `QtQuick.VirtualKeyboard`, binding to `WifiController.errorMessage`.
 
-- [ ] **T18: TakeoverDialog — keep/switch modal.** New `TakeoverDialog.qml` (`Popup` centered, modal). Visible when `PlaybackController.bluetooth.takeoverPending`. Title "Takeover", body "Keep playing on \<current\>, or switch to \<new\>?". Two large touch buttons: "Keep Current" / "Switch to \<new\>". Countdown text: "Auto-selecting Keep Current in \<n\>s". 10-second `Timer` → auto-selects KeepCurrent. Calls `PlaybackController.bluetooth.resolveTakeover(KeepCurrent|SwitchToNew)`.
+- [x] **T18: TakeoverDialog — keep/switch modal.** New `TakeoverDialog.qml` (`Popup` centered, modal). Visible when `PlaybackController.bluetooth.takeoverPending`. Title "Takeover", body "Keep playing on \<current\>, or switch to \<new\>?". Two large touch buttons: "Keep Current" / "Switch to \<new\>". Countdown text: "Auto-selecting Keep Current in \<n\>s". 10-second `Timer` → auto-selects KeepCurrent. Calls `PlaybackController.bluetooth.resolveTakeover(KeepCurrent|SwitchToNew)`.
   - Learn: `Popup` with `modal: true`, `Timer` countdown, `Q_ENUM` from `BluetoothClient.TakeoverChoice`.
 
-- [ ] **T19: ConfirmDialog — reboot/shutdown.** New `ConfirmDialog.qml` (`Popup` centered, modal). Title changes: "Reboot Radio?" / "Shutdown Radio?". Two large buttons: "Cancel" (neutral) / "Confirm" (red `Theme.errorColor`). 10-second auto-dismiss (cancels). Confirm calls `systemctl poweroff`/`reboot` via `QProcess`.
+- [x] **T19: ConfirmDialog — reboot/shutdown.** New `ConfirmDialog.qml` (`Popup` centered, modal). Title changes: "Reboot Radio?" / "Shutdown Radio?". Two large buttons: "Cancel" (neutral) / "Confirm" (red `Theme.errorColor`). 10-second auto-dismiss (cancels). Confirm calls `systemctl poweroff`/`reboot` via `QProcess`.
   - Learn: `Popup` + `Timer` auto-dismiss, `QProcess::start("systemctl", ...)`.
 
-- [ ] **T20: Dark mode toggle.** Wire `Theme.darkMode` toggle in the right sidebar (small switch between sliders and BT status). Toggle sets `Theme.darkMode = !Theme.darkMode`, which flips `Material.theme` between Dark and Light. Verify all views re-render correctly.
+- [x] **T20: Dark mode toggle.** Wire `Theme.darkMode` toggle in the right sidebar (small switch between sliders and BT status). Toggle sets `Theme.darkMode = !Theme.darkMode`, which flips `Material.theme` between Dark and Light. Verify all views re-render correctly.
   - Learn: `Switch`/`Toggle` control, `Material.theme` binding, verifying no hardcoded color leaks.
 
 ## Phase 3: Polish + deployment

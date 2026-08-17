@@ -3,12 +3,12 @@
 # based on WAYLAND_DISPLAY. Assumes you are inside `nix develop`.
 set -euo pipefail
 
-BIN="build/bin/bierkistnRadio"
+# shellcheck source=scripts/qt-env.sh
+source "$(dirname "$0")/qt-env.sh"
 
-if [[ ! -x "$BIN" ]]; then
-    echo "error: $BIN not found. Run scripts/setup.sh then scripts/build.sh first." >&2
-    exit 1
-fi
+cmake --build build
+
+BIN="build/bin/bierkistnRadio"
 
 if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
     export QT_QPA_PLATFORM=wayland

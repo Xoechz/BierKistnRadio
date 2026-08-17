@@ -4,16 +4,16 @@ import QtQuick.Controls.Material
 import QtQuick.Layouts
 import BierKistnRadio
 
-Dialog {
+Popup {
     id: root
     modal: true
-    width: 380
-    height: 240
-    standardButtons: Dialog.NoButton
+    width: 480
+    height: 280
     closePolicy: Popup.CloseOnEscape
     anchors.centerIn: Overlay.overlay
 
-    property string action: "reboot"
+    visible: PlaybackController.bluetooth.takeoverPending
+
     property int countdown: 10
 
     ColumnLayout {
@@ -22,16 +22,15 @@ Dialog {
         spacing: Theme.defaultSpacing
 
         Label {
-            text: root.action === "shutdown" ? "Shutdown Radio?" : "Reboot Radio?"
+            text: "Takeover"
             font.pixelSize: Theme.fontSizeXLarge
             font.bold: true
             color: Theme.textColor
         }
 
         Label {
-            text: root.action === "shutdown"
-                ? "The radio will power off."
-                : "The radio will restart."
+            text: "Keep playing on " + PlaybackController.bluetooth.connectedDeviceName
+                  + ", or switch to " + PlaybackController.bluetooth.takeoverIncomingName + "?"
             font.pixelSize: Theme.fontSizeMedium
             color: Theme.secondaryTextColor
             wrapMode: Text.WordWrap
@@ -39,7 +38,7 @@ Dialog {
         }
 
         Label {
-            text: "Auto-dismissing in " + root.countdown + "s"
+            text: "Auto-selecting Keep Current in " + root.countdown + "s"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryTextColor
         }
@@ -51,44 +50,40 @@ Dialog {
             spacing: Theme.defaultSpacing
 
             Button {
-                text: "Cancel"
-                flat: true
+                text: "Keep Current"
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
-                onClicked: root.close()
+                onClicked: root.resolveTakeover(BluetoothClient.KeepCurrent)
             }
             Button {
-                text: "Confirm"
+                text: "Switch to " + PlaybackController.bluetooth.takeoverIncomingName
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
-                Material.background: Theme.errorColor
-                onClicked: {
-                    if (root.action === "shutdown") {
-                        PowerController.shutdown()
-                    } else {
-                        PowerController.reboot()
-                    }
-                    root.close()
-                }
+                Material.background: Theme.primaryColor
+                onClicked: root.resolveTakeover(BluetoothClient.SwitchToNew)
             }
         }
     }
 
-    function openFor(act) {
-        root.action = act
-        root.countdown = 10
-        root.open()
+    function resolveTakeover(choice) {
+        PlaybackController.bluetooth.resolveTakeover(choice)
+    }
+
+    onVisibleChanged: {
+        if (root.visible) {
+            root.countdown = 10
+        }
     }
 
     Timer {
-        id: autoDismiss
+        id: countdownTimer
         interval: 1000
         repeat: true
         running: root.visible
         onTriggered: {
             root.countdown -= 1
             if (root.countdown <= 0) {
-                root.close()
+                root.resolveTakeover(BluetoothClient.KeepCurrent)
             }
         }
     }

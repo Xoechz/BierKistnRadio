@@ -31,6 +31,7 @@ qt_add_library(bierkistn_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/BluetoothClient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/WifiController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/VolumeController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PowerController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/ArtCache.cpp
 )
 
@@ -66,6 +67,14 @@ qt_add_qml_module(bierkistn_core
         qml/CenterColumn.qml
         qml/RightSidebar.qml
         qml/WifiDialog.qml
+        qml/TakeoverDialog.qml
+)
+
+# Fallback album art — embedded at qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg
+qt_add_resources(bierkistn_core "fallback_album"
+    PREFIX "/qt/qml/BierKistnRadio/assets"
+    BASE "qml/assets"
+    FILES qml/assets/fallback-album.svg
 )
 
 # --- Application executable ---

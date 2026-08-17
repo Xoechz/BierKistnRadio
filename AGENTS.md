@@ -161,6 +161,7 @@ The app does NOT auto-pause spotifyd when a phone connects via BT — but the **
 │       ├── BluetoothClient.{h,cpp}      # BlueZ: Device1 + MediaPlayer1 AVRCP, takeover, mute
 │       ├── WifiController.{h,cpp}       # NetworkManager
 │       ├── VolumeController.{h,cpp}    # wpctl (source-independent sink volume)
+│       ├── PowerController.{h,cpp}     # systemctl reboot/poweroff (QProcess)
 │       └── ArtCache.{h,cpp}             # album art cache + cleanup
 ├── qml/
 │   ├── Main.qml             # root window, frameless fullscreen, three-column layout
@@ -171,7 +172,9 @@ The app does NOT auto-pause spotifyd when a phone connects via BT — but the **
 │   ├── CenterColumn.qml     # album art + scrubber/progress + transport
 │   ├── WifiDialog.qml       # popup: SSID list, signal bars, password OSK, connect
 │   ├── TakeoverDialog.qml   # modal: keep current / switch to new, 10s auto-select
-│   └── ConfirmDialog.qml    # modal: reboot/shutdown confirmation, 10s auto-dismiss
+│   ├── ConfirmDialog.qml    # modal: reboot/shutdown confirmation, 10s auto-dismiss
+│   └── assets/
+│       └── fallback-album.svg # fallback album art (embedded Qt resource)
 ├── tests/
 │   ├── tst_controllers.cpp  # C++ controller unit tests (Qt Test)
 │   ├── tst_qml.cpp          # QML test harness (Qt Quick Test)
