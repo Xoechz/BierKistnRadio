@@ -34,6 +34,8 @@ This is exactly how "codec speaker with buttons" products work: the speaker is t
 
 ### Mute invariant (audio exclusivity guarantee)
 
+> **Superseded by [ADR 0008](./0008-two-sided-audio-exclusivity.md)** for decisions 10–13. ADR 0008 generalises the muter from "BT-mute when switching to Spotify" into a two-sided rule: the inactive Source is muted **and paused**, either direction, and re-asserted whenever one of its streams appears. `setMuted` now mutes all (true) / unmutes active (false).
+
 10. **Switching to Spotify from `BluetoothActive`**: mute the bluez sink node first (hard silence), then send best-effort AVRCP `Pause` (fire-and-forget), then re-query the bus for the Spotify state. Mute-before-pause so no frame relies on phone compliance.
 11. **Mute lives in `BluetoothClient.setMuted(bool)`**, not `VolumeController`: it is a property of the *BT stream's* node. Mechanism: `pw-dump`/`pw-cli ls Node` to discover the connected device's bluez audio node — **match by `api.bluez5.address` == the connected MAC**, never by a hardcoded `bluez_output.*.a2dp-sink` name (the shape is device/profile-dependent) — then `wpctl set-mute <id>`. Node discovery happens at call time (IDs are session-scoped).
 12. **Re-assertion invariant (like `Discoverable` in [ADR 0004](./0004-phone-driven-bluetooth-connection-model.md))**: mute state lives on the *node*, and BlueZ destroys the node on disconnect. So **any time a BT A2DP stream appears while `playbackState` is a Spotify state, mute it** — a newly connected phone gets re-muted. This supersedes "a BT connect while in a Spotify state does nothing" for the *audio* path (connection state still does nothing; only the stream is silenced).

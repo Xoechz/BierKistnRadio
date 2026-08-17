@@ -42,6 +42,7 @@ private slots:
   void testBluetoothTransportTargetsActiveDevice();
   void testBluetoothMuteDiscoversNodeAndMutes();
   void testBluetoothUnmuteIssuesSetMuteZero();
+  void testBluetoothMuteCoversAllConnectedDevices();
   void testBluetoothNodeIdFromPwDump();
   void testBluetoothAvrcpResetsOnDeviceChange();
   void testSpotifyClientDefaults();
@@ -363,17 +364,15 @@ void TestControllers::testWifiControllerTracksActiveConnectionState() {
                                const QString &interface, const QString &method,
                                const QVariantList &args,
                                const std::function<void(const QVariant &, const QString &)> &onFinished) {
-        if (interface == QStringLiteral("org.freedesktop.NetworkManager") &&
-            method == QStringLiteral("GetPrimaryConnection")) {
-          onFinished(QVariant::fromValue(QDBusObjectPath(activeConnPath)), QString());
-          return;
-        }
-        // Property reads go through org.freedesktop.DBus.Properties.Get; the
-        // target interface is args[0].
         if (interface == QStringLiteral("org.freedesktop.DBus.Properties") &&
             method == QStringLiteral("Get")) {
           const QString targetInterface = args.value(0).toString();
           const QString prop = args.value(1).toString();
+          if (targetInterface == QStringLiteral("org.freedesktop.NetworkManager") &&
+              prop == QStringLiteral("PrimaryConnection")) {
+            onFinished(QVariant::fromValue(QDBusObjectPath(activeConnPath)), QString());
+            return;
+          }
           if (targetInterface == QStringLiteral("org.freedesktop.NetworkManager.Connection.Active") &&
               prop == QStringLiteral("SpecificObject")) {
             onFinished(QVariant::fromValue(QDBusObjectPath(apPath)), QString());
@@ -766,6 +765,9 @@ void TestControllers::testBluetoothMuteDiscoversNodeAndMutes() {
                              {QStringLiteral("Address"), address},
                              {QStringLiteral("Connected"), QVariant(true)}});
 
+  // Connecting re-asserts mute intent (here unmounted). Isolate the setMuted
+  // under test from that connect-time call(s).
+  calls.clear();
   c.setMuted(true);
   QCOMPARE(c.muted(), true);
   QCOMPARE(calls.size(), 2);
@@ -802,10 +804,64 @@ void TestControllers::testBluetoothUnmuteIssuesSetMuteZero() {
                              {QStringLiteral("Address"), address},
                              {QStringLiteral("Connected"), QVariant(true)}});
 
+  calls.clear(); // connect-time unmute is not under test here
   c.setMuted(false);
   QCOMPARE(c.muted(), false);
   QCOMPARE(calls.size(), 2);
   QCOMPARE(calls.last(), QStringLiteral("wpctl set-mute 35 0"));
+}
+
+void TestControllers::testBluetoothMuteCoversAllConnectedDevices() {
+  BluetoothClient c;
+  const QString addrA = QStringLiteral("AA:BB:CC:DD:EE:01");
+  const QString addrB = QStringLiteral("AA:BB:CC:DD:EE:02");
+  const QByteArray pwDump =
+      "[{\"id\":35,\"type\":\"PipeWire:Interface:Node\",\"info\":{\"props\":"
+      "{\"api.bluez5.address\":\"AA:BB:CC:DD:EE:01\"}}},{\"id\":41,\"type\":"
+      "\"PipeWire:Interface:Node\",\"info\":{\"props\":{\"api.bluez5.address\":"
+      "\"AA:BB:CC:DD:EE:02\"}}}]";
+  c.setDbusCallableForTest(
+      [](const QString &, const QString &, const QString &, const QString &,
+         const QVariantList &,
+         const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        onFinished(QVariant(), QString());
+      });
+  QStringList calls;
+  c.setCommandRunnerForTest(
+      [&calls, pwDump](const QStringList &args,
+                       const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args.join(QStringLiteral(" ")));
+        if (args.first() == QStringLiteral("pw-dump")) {
+          onFinished(pwDump);
+        } else {
+          onFinished(QByteArray());
+        }
+      });
+  c.bluezObjectAddedForTest(
+      QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_01"),
+      QStringLiteral("org.bluez.Device1"),
+      {{QStringLiteral("Alias"), QStringLiteral("A")},
+       {QStringLiteral("Address"), addrA},
+       {QStringLiteral("Connected"), QVariant(true)}});
+  c.bluezObjectAddedForTest(
+      QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_02"),
+      QStringLiteral("org.bluez.Device1"),
+      {{QStringLiteral("Alias"), QStringLiteral("B")},
+       {QStringLiteral("Address"), addrB},
+       {QStringLiteral("Connected"), QVariant(true)}});
+
+  calls.clear(); // prior per-device connect-minute unmutes are not under test
+  c.setMuted(true); // ADR 0008: mute EVERY connected A2DP node
+
+  QStringList muteCmds;
+  for (const QString &line : calls) {
+    if (line.startsWith(QStringLiteral("wpctl"))) {
+      muteCmds.append(line);
+    }
+  }
+  QVERIFY(muteCmds.contains(QStringLiteral("wpctl set-mute 35 1")));
+  QVERIFY(muteCmds.contains(QStringLiteral("wpctl set-mute 41 1")));
+  QCOMPARE(muteCmds.size(), 2);
 }
 
 void TestControllers::testBluetoothNodeIdFromPwDump() {

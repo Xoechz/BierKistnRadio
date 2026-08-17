@@ -73,6 +73,9 @@ public:
   Q_INVOKABLE void next();
   Q_INVOKABLE void previous();
   Q_INVOKABLE void setMuted(bool muted);
+  // Best-effort AVRCP Pause on every connected device's player (ADR 0008:
+  // switching away from BT also pauses, not just mutes).
+  Q_INVOKABLE void pauseAll();
 
   // BlueZ D-Bus call seam. `onFinished(reply, error)` receives the unwrapped
   // reply value (or empty on error) plus a non-empty error string on
@@ -170,6 +173,11 @@ private:
                          const QString &album, qint64 duration);
   void setPlayerPlaying(bool playing);
   void setPlayerPosition(qint64 ms);
+
+  // Mute single A2DP node by bluez address (pw-dump -> wpctl). `assertDeviceMute`
+  // (re)applies the current intent (`m_muted`) to a freshly connected device.
+  void setNodeMuted(const QString &address, bool muted);
+  void assertDeviceMute(const QString &address);
 
 private slots:
   void onInterfacesAdded(const QDBusObjectPath &path,

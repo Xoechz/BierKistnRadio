@@ -57,17 +57,23 @@ WifiController::WifiController(QObject *parent) : QObject(parent) {
     QDBusPendingCall pending = QDBusConnection::systemBus().asyncCall(msg);
     auto *watcher = new QDBusPendingCallWatcher(pending);
     QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher,
-                     [watcher, onFinished]() {
+                     [watcher, onFinished, service, method]() {
                        QString error;
                        QVariant reply;
                        if (watcher->isError()) {
                          error = watcher->error().message();
                        } else {
-                         const QList<QVariant> args =
-                             watcher->reply().arguments();
-                         if (!args.isEmpty()) {
-                           reply = args.first();
+const QList<QVariant> args =
+                           watcher->reply().arguments();
+                       if (!args.isEmpty()) {
+                         reply = args.first();
+                         // org.freedesktop.DBus.Properties.Get returns a `v`
+                         // (variant); unwrap it so callers receive the
+                         // concrete value (object path / int / string / map).
+                         if (reply.canConvert<QDBusVariant>()) {
+                           reply = reply.value<QDBusVariant>().variant();
                          }
+                       }
                        }
                        onFinished(reply, error);
                        watcher->deleteLater();
@@ -78,6 +84,11 @@ WifiController::WifiController(QObject *parent) : QObject(parent) {
       kNetworkManagerService, kNetworkManagerPath, kPropertiesInterface,
       kPropertiesChangedSignal, this,
       SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)));
+
+  // The "Connected to <SSID>" status must be right at startup too, not only
+  // after a PrimaryConnection change. Re-fetch it now and on every Properties
+  // transition to stay honest if NM restarts.
+  refreshActiveConnection();
 }
 
 bool WifiController::connected() const { return m_connected; }
@@ -257,9 +268,9 @@ void WifiController::setError(const QString &message) {
 }
 
 void WifiController::refreshActiveConnection() {
-  m_dbusCall(kNetworkManagerService, kNetworkManagerPath,
-             kNetworkManagerInterface, QStringLiteral("GetPrimaryConnection"),
-             QVariantList(),
+  m_dbusCall(kNetworkManagerService, kNetworkManagerPath, kPropertiesInterface,
+             QStringLiteral("Get"),
+             QVariantList{kNetworkManagerInterface, kPrimaryConnectionProp},
              [this](const QVariant &reply, const QString &error) {
                if (!error.isEmpty()) {
                  return;

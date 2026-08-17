@@ -9,13 +9,18 @@ Rectangle {
     color: Theme.surfaceColor
 
     readonly property string btStatusText: {
+        const bt = PlaybackController.bluetooth
+        const name = bt.connectedDeviceName
+        if (name !== "") {
+            // Visible regardless of Source state (ADR 0008): you can always see
+            // that a phone is connected, plus when it is silenced.
+            return "Connected to " + name + (bt.muted ? " · Muted" : "")
+        }
         switch (PlaybackController.playbackState) {
-        case PlaybackController.BluetoothActive:
-            return "Connected to " + PlaybackController.bluetooth.connectedDeviceName
         case PlaybackController.BluetoothWaiting:
             return "Discoverable"
         default:
-            return PlaybackController.bluetooth.adapterPowered ? "Not connected" : "Not available"
+            return bt.adapterPowered ? "Not connected" : "Not available"
         }
     }
 

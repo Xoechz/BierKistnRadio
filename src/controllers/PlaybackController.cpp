@@ -11,6 +11,8 @@ PlaybackController::PlaybackController(QObject *parent) : QObject(parent) {
           &PlaybackController::onSpotifyChanged);
   connect(m_spotify, &SpotifyClient::hasTrackChanged, this,
           &PlaybackController::onSpotifyChanged);
+  connect(m_spotify, &SpotifyClient::isSpotifyPlayingChanged, this,
+          &PlaybackController::onSpotifyChanged);
 
   connect(m_bluetooth, &BluetoothClient::connectedDeviceNameChanged, this,
           &PlaybackController::onBluetoothChanged);
@@ -68,18 +70,21 @@ void PlaybackController::seek(qint64 positionMs) {
 }
 
 void PlaybackController::switchToSpotify() {
-  // Mute the BT stream first (hard silence), then best-effort pause, then
-  // recompute the Spotify state from the bus (ADR 0006 mute-before-pause).
-  if (m_playbackState == BluetoothActive) {
+  // Hard-mute + AVRCP-pause the BT side, then recompute Spotify state
+  // (ADR 0008: mute-before-pause, no frame relies on the phone).
+  if (m_playbackState == BluetoothActive ||
+      m_playbackState == BluetoothWaiting) {
     m_bluetooth->setMuted(true);
-    m_bluetooth->pause();
+    m_bluetooth->pauseAll();
   }
 
   refreshSpotifyState();
 }
 
 void PlaybackController::switchToBluetooth() {
+  // Pause spotifyd (its output shares the physical sink; pause IS its mute).
   m_spotify->pause();
+  // Unmute only the active BT node.
   m_bluetooth->setMuted(false);
 
   if (m_playbackState == BluetoothActive ||
@@ -93,8 +98,15 @@ void PlaybackController::switchToBluetooth() {
 }
 
 void PlaybackController::onSpotifyChanged() {
+  // While Bluetooth is the audible Source, a spotify session that becomes
+  // playable must be silenced (ADR 0008: inactive Source muted+paused). The
+  // visible Source stays Bluetooth; the stream is paused behind a "· Muted"
+  // chip on the OTHER side.
   if (m_playbackState == BluetoothWaiting ||
       m_playbackState == BluetoothActive) {
+    if (m_spotify->isSpotifyPlaying()) {
+      m_spotify->pause();
+    }
     return;
   }
 
@@ -112,11 +124,12 @@ void PlaybackController::onBluetoothChanged() {
 }
 
 void PlaybackController::onBluetoothConnected() {
-  // A BT stream appearing while in a Spotify state: mute it (ADR 0006
-  // invariant), but do NOT change the source. Connection state is unchanged.
+  // A BT stream appearing while in a Spotify state: mute + AVRCP-pause it
+  // (ADR 0008 invariant), but do NOT change the source.
   if (m_playbackState != BluetoothWaiting &&
       m_playbackState != BluetoothActive) {
     m_bluetooth->setMuted(true);
+    m_bluetooth->pauseAll();
   } else if (m_playbackState == BluetoothWaiting) {
     m_bluetooth->setMuted(false); // prevent muted BT stream
     setPlaybackState(BluetoothActive);

@@ -31,7 +31,7 @@ This app is a **thin D-Bus client**: it assumes the system environment grants th
 - **Packaging:** Nix flake — `packages.<system>.bierkistnRadio` for `x86_64-linux` (dev/test) and `aarch64-linux` (deploy).
 - **Playback abstraction:** MPRIS2 over D-Bus via spotifyd (Spotify), plus Bluetooth A2DP sink + best-effort AVRCP controls via BlueZ (radio/audio from a paired phone). Playback source state lives in `SpotifyClient` / `BluetoothClient`, coordinated by the `PlaybackController` facade — see [ADR 0003](./docs/adr/0003-spotifyd-and-bluetooth-sink-mopidy-dropped.md) and [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md).
 - **Volume:** `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct%>` (wireplumber CLI), not a linked C library. Source-independent — shown in every state.
-- **Bluetooth audio mute (overlap guarantee):** muting the A2DP stream = find the connected device's bluez audio node via `pw-dump` (match by `api.bluez5.address` == the connected MAC, e.g. `bluez_input.<MAC>.2` or `bluez_output.<MAC>.a2dp-sink` — the node name shape is **device/profile-dependent**, never hardcode it), then `wpctl set-mute <node id>`. Never mute `@DEFAULT_AUDIO_SINK@` (that's spotifyd's path too). See [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md).
+- **Bluetooth audio mute (overlap guarantee):** muting the A2DP stream = find the connected device's bluez audio node via `pw-dump` (match by `api.bluez5.address` == the connected MAC, e.g. `bluez_input.<MAC>.2` or `bluez_output.<MAC>.a2dp-sink` — the node name shape is **device/profile-dependent**, never hardcode it), then `wpctl set-mute <node id>`. Never mute `@DEFAULT_AUDIO_SINK@` (that's spotifyd's path too). `setMuted(true)` mutes **all** connected nodes; `setMuted(false)` unmutes only the active one. See [ADR 0008](./docs/adr/0008-two-sided-audio-exclusivity.md).
 - **System D-Bus interfaces used:** MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`), `org.bluez` (`Device1`, `Adapter1`, `MediaPlayer1` for best-effort AVRCP), NetworkManager, BlueZ.
 - **On-screen keyboard:** `QtQuick.VirtualKeyboard` — **GPLv3/commercial in Qt6**. This app is GPLv3 as a result. See [ADR 0002](./docs/adr/0002-tech-stack.md).
 
@@ -46,10 +46,10 @@ Single full-screen three-column layout with a persistent status bar. No view swi
 - Height: 48px. Three regions: clock (left), Source toggle (center), Reboot/Shutdown icons (right).
 - **Clock:** current time, left-aligned.
 - **Source toggle:** "Spotify ○══○ Bluetooth" — tapping it switches between Spotify and Bluetooth.
-  - Spotify → calls `PlaybackController.switchToSpotify()`: mutes the Bluetooth stream (if active), then sends a best-effort AVRCP `Pause`, then queries the bus for the appropriate Spotify state. See the mute invariant in [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md).
+  - Spotify → calls `PlaybackController.switchToSpotify()`: hard-mutes and best-effort AVRCP-pauses the Bluetooth side, then queries the bus for the appropriate Spotify state. See the mute invariant in [ADR 0008](./docs/adr/0008-two-sided-audio-exclusivity.md).
   - Bluetooth → calls `PlaybackController.switchToBluetooth()`: pauses spotifyd, unmutes the Bluetooth stream, then enters `BluetoothWaiting` (no device connected) or `BluetoothActive` (device already connected).
   - Shows "…" while switching; resets when `playbackState` changes. A 3-second timeout resets the "…" if no state change arrives (prevents stuck limbo).
-  - A phone connecting via BT does NOT automatically switch the app to Bluetooth mode — only the user tapping the toggle does. (It *does* get muted if the app is in a Spotify state — the mute invariant, not a state change.)
+  - A phone connecting via BT does NOT automatically switch the app to Bluetooth mode — only the user tapping the toggle does. It *does* get muted (and AVRCP-paused) if the app is in a Spotify state; a spotify session that starts while in a Bluetooth state is paused — the mute invariant ([ADR 0008](./docs/adr/0008-two-sided-audio-exclusivity.md)), not a state change.
 - **Reboot / Shutdown icons:** icon-only buttons in the top-right. Tapping opens a confirmation dialog (see §4.F).
 
 ### B. Now-Playing (default and only view)
@@ -133,9 +133,9 @@ Tapping reboot or shutdown in the status bar opens a centered modal:
 - 10-second auto-dismiss (cancels) to prevent accidental activation.
 - Confirm calls `systemctl poweroff` or `systemctl reboot` via `QProcess` or `org.freedesktop.login1` D-Bus.
 
-### F. Mute Invariant (ADR 0006)
+### F. Mute Invariant (ADR 0008)
 
-The app does NOT auto-pause spotifyd when a phone connects via BT — but the **mute invariant** in [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md) guarantees a BT stream is muted while in a Spotify state (re-asserted on every connect). Audio overlap is otherwise managed by the explicit toggle (mute/pause the outgoing source). A BT disconnect while in a Spotify state does nothing; a BT disconnect while in `BluetoothActive` triggers a Bluetooth subtree re-query: if another device is still connected, retarget the AVRCP controls at it and stay `BluetoothActive`; otherwise transition to `BluetoothWaiting`. Never re-query the Spotify bus on a BT disconnect, and never auto-reconnect a dropped connection — source switching (and reconnection) is explicit-only.
+Only the **shown Source** is audible; the inactive Source is **muted and paused** — see [ADR 0008](./docs/adr/0008-two-sided-audio-exclusivity.md) (supersedes ADR 0006 §10–13). Mechanism: the BT side is hard-muted per connected device's A2DP node (`pw-dump` → `wpctl set-mute`, `setMuted(true)` mutes **all** connected, `setMuted(false)` unmutes only the **active** one) plus best-effort AVRCP `pauseAll()`; the Spotify side is "muted" by `MPRIS Pause` (its output shares the physical sink, so there is no independent spotify node to mute). It is re-asserted on every relevant connect, and **never auto-Plays** — unmute happens only by entering the source. Only one active phone is audible; a second connect is arbitrated by the takeover dialog, not mixed in. A BT disconnect while in a Spotify state does nothing; a BT disconnect while in `BluetoothActive` triggers a Bluetooth subtree re-query: if another device is still connected, retarget the AVRCP controls at it and stay `BluetoothActive`; otherwise transition to `BluetoothWaiting`. Never re-query the Spotify bus on a BT disconnect, and never auto-reconnect a dropped connection — source switching (and reconnection) is explicit-only.
 
 ## 5. Design Guidelines
 

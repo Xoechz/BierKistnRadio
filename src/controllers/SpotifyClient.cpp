@@ -7,7 +7,15 @@
 #include <QTimer>
 
 namespace {
-const QString kMprisPrefix = QStringLiteral("org.mpris.MediaPlayer2.spotifyd.");
+// spotifyd 0.4.x always owns "rs.spotifyd.instance<PID>" (the D-Bus name that
+// exposes the always-on rs.spotifyd.Controls interface at /rs/spotifyd/Controls)
+// as soon as it is running. It only owns a *session* MPRIS name once an active
+// Spotify session connects, and releases it again on disconnection. Both names
+// carry the PID and change on restart, so we watch/scan for both uses the same
+// rescan machinery.
+const QString kMprisSessionPrefix =
+    QStringLiteral("org.mpris.MediaPlayer2.spotifyd.");
+const QString kSpotifydDaemonPrefix = QStringLiteral("rs.spotifyd.instance");
 
 const QString kPlayerPath = QStringLiteral("/org/mpris/MediaPlayer2");
 
@@ -61,7 +69,9 @@ qint64 SpotifyClient::position() const { return m_position; }
 qint64 SpotifyClient::duration() const { return m_duration; }
 bool SpotifyClient::isSpotifyPlaying() const { return m_isSpotifyPlaying; }
 bool SpotifyClient::hasTrack() const { return m_hasTrack; }
-bool SpotifyClient::isAvailable() const { return !m_mprisService.isEmpty(); }
+bool SpotifyClient::isAvailable() const {
+  return !m_mprisService.isEmpty() || m_daemonPresent;
+}
 
 void SpotifyClient::play() {
   if (m_mprisService.isEmpty()) {
@@ -126,16 +136,40 @@ void SpotifyClient::discoverServices() {
     return;
   }
 
+  bool daemonSeen = false;
+  bool sessionSeen = false;
   for (const QString &name : reply.value()) {
-    if (name.startsWith(kMprisPrefix)) {
+    if (name.startsWith(kMprisSessionPrefix)) {
       m_mprisService = name;
       if (m_watcher) {
         m_watcher->addWatchedService(name);
       }
-      subscribeToMpris();
-      fetchInitialMprisState();
+      // Bind the PropertiesChanged match to the *unique* owner name so Qt
+      // never has to resolve a well-known name mid-connect (which is what
+      // spams "Could not connect org.freedesktop.DBus.Properties to
+      // onMprisPropertiesChanged"). Only (re)arm when the owner actually
+      // changes; a steady session must not be re-subscribed every poll.
+      QString owner = bus->serviceOwner(name).value();
+      if (owner.isEmpty()) {
+        owner = name;
+      }
+      if (owner != m_subscribedUnique) {
+        m_subscribedUnique = owner;
+        subscribeToMpris();
+        fetchInitialMprisState();
+      }
+      sessionSeen = true;
       setAvailable(true);
+    } else if (name.startsWith(kSpotifydDaemonPrefix)) {
+      daemonSeen = true;
+      if (m_watcher) {
+        m_watcher->addWatchedService(name);
+      }
     }
+  }
+  setDaemonPresent(daemonSeen);
+  if (daemonSeen && !sessionSeen) {
+    setAvailable(true);
   }
 }
 
@@ -143,36 +177,60 @@ void SpotifyClient::onServiceOwnerChanged(const QString &name,
                                           const QString &oldOwner,
                                           const QString &newOwner) {
   Q_UNUSED(oldOwner);
-  if (!name.startsWith(kMprisPrefix)) {
+  if (!name.startsWith(kMprisSessionPrefix) &&
+      !name.startsWith(kSpotifydDaemonPrefix)) {
     return;
   }
 
+  if (name.startsWith(kSpotifydDaemonPrefix)) {
+    // Daemon name: present means spotifyd is running (waitable); lost means
+    // the daemon is gone entirely.
+    if (!newOwner.isEmpty()) {
+      setDaemonPresent(true);
+      setAvailable(true);
+    } else {
+      setDaemonPresent(false);
+      if (m_mprisService.isEmpty()) {
+        setAvailable(false);
+      }
+    }
+    return;
+  }
+
+  // Session MPRIS name. newOwner is the name's *unique* owner — use it directly
+  // for the signal match so no well-known-name resolution race can occur.
   if (!newOwner.isEmpty()) {
     m_mprisService = name;
     if (m_watcher) {
       m_watcher->addWatchedService(name);
     }
-    subscribeToMpris();
-    fetchInitialMprisState();
+    if (newOwner != m_subscribedUnique) {
+      m_subscribedUnique = newOwner;
+      subscribeToMpris();
+      fetchInitialMprisState();
+    }
     setAvailable(true);
   } else {
     m_mprisService.clear();
+    m_subscribedUnique.clear();
     m_trackId = QDBusObjectPath();
     setTrackPresence(false);
     unsubscribeFromMpris();
-    setAvailable(false);
+    if (!m_daemonPresent) {
+      setAvailable(false);
+    }
   }
 }
 
 void SpotifyClient::subscribeToMpris() {
   QDBusConnection::sessionBus().connect(
-      m_mprisService, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
+      m_subscribedUnique, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
       this, SLOT(onMprisPropertiesChanged(QString, QVariantMap, QStringList)));
 }
 
 void SpotifyClient::unsubscribeFromMpris() {
   QDBusConnection::sessionBus().disconnect(
-      m_mprisService, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
+      m_subscribedUnique, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
       this, SLOT(onMprisPropertiesChanged(QString, QVariantMap, QStringList)));
 }
 
@@ -295,4 +353,12 @@ void SpotifyClient::setAvailable(bool available) {
     m_available = available;
     emit availableChanged();
   }
+}
+
+void SpotifyClient::setDaemonPresent(bool present) {
+  if (m_daemonPresent == present) {
+    return;
+  }
+  m_daemonPresent = present;
+  emit availableChanged();
 }

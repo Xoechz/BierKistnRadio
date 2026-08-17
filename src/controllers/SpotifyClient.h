@@ -72,6 +72,8 @@ private:
   bool m_hasTrack = false;
   bool m_available = false;
   QString m_mprisService;
+  QString m_subscribedUnique;
+  bool m_daemonPresent = false;
   QDBusObjectPath m_trackId;
   QDBusServiceWatcher *m_watcher = nullptr;
   QTimer m_rescanTimer;
@@ -89,4 +91,5 @@ private:
   void updatePlaybackStatus(const QString &status);
   void setTrackPresence(bool present);
   void setAvailable(bool available);
+  void setDaemonPresent(bool present);
 };

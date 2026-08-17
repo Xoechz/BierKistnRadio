@@ -66,7 +66,7 @@ BluetoothClient::BluetoothClient(QObject *parent) : QObject(parent) {
     QDBusMessage msg =
         QDBusMessage::createMethodCall(service, objectPath, interface, method);
     msg.setArguments(args);
-    QDBusPendingCall pending = QDBusConnection::sessionBus().asyncCall(msg);
+    QDBusPendingCall pending = QDBusConnection::systemBus().asyncCall(msg);
     auto *watcher = new QDBusPendingCallWatcher(pending);
     QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher,
                      [watcher, onFinished]() {
@@ -100,11 +100,11 @@ BluetoothClient::BluetoothClient(QObject *parent) : QObject(parent) {
   // Live object additions/removals while running. `org.bluez` implements the
   // standard DBus object-manager interface at `/`.
   qDBusRegisterMetaType<QMap<QString, QVariantMap>>();
-  QDBusConnection::sessionBus().connect(
+  QDBusConnection::systemBus().connect(
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesAdded"), this,
       SLOT(onInterfacesAdded(QDBusObjectPath, QMap<QString, QVariantMap>)));
-  QDBusConnection::sessionBus().connect(
+  QDBusConnection::systemBus().connect(
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesRemoved"), this,
       SLOT(onInterfacesRemoved(QDBusObjectPath, QStringList)));
@@ -238,7 +238,7 @@ void BluetoothClient::subscribeProperties(const QString &path,
         applyPropertiesChanged(path, iface, changed);
       });
   subscriber->setParent(this);
-  QDBusConnection::sessionBus().connect(
+  QDBusConnection::systemBus().connect(
       kBlueZService, path, interface, kPropertiesSignal, subscriber,
       SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)));
 }
@@ -307,6 +307,7 @@ void BluetoothClient::onDeviceAdded(const QString &path,
   m_devices.insert(path, d);
   if (d.connected) {
     m_connectedOrder.append(path);
+    assertDeviceMute(d.address); // re-assert this device's mute against intent
   }
   if (m_adapterPath.isEmpty()) {
     const QString adapter = props.value(kAdapterProp).toString();
@@ -353,6 +354,9 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
     m_adapterPath = props.value(kAdapterProp).toString();
   }
   m_devices.insert(path, device);
+  if (device.connected) {
+    assertDeviceMute(device.address);
+  }
 
   const bool nameChanged =
       (!device.alias.isEmpty() ? device.alias : device.name) != oldName;
@@ -610,13 +614,27 @@ void BluetoothClient::setMuted(bool muted) {
     m_muted = muted;
     emit mutedChanged();
   }
-  if (m_activeDevicePath.isEmpty()) {
-    return;
+  if (m_muted) {
+    // Spotify audible: hard-mute EVERY connected A2DP node (whichever of them
+    // is genuinely streaming) — ADR 0008, "mute all".
+    for (auto it = m_devices.cbegin(); it != m_devices.cend(); ++it) {
+      if (it->connected && !it->address.isEmpty()) {
+        setNodeMuted(it->address, true);
+      }
+    }
+  } else {
+    // Bluetooth audible: unmute only the ACTIVE device (one phone plays, Q12).
+    if (m_activeDevicePath.isEmpty()) {
+      return;
+    }
+    const QString address = m_devices.value(m_activeDevicePath).address;
+    if (!address.isEmpty()) {
+      setNodeMuted(address, false);
+    }
   }
-  const QString address = m_devices.value(m_activeDevicePath).address;
-  if (address.isEmpty()) {
-    return;
-  }
+}
+
+void BluetoothClient::setNodeMuted(const QString &address, bool muted) {
   m_runner(QStringList{QStringLiteral("pw-dump")},
            [this, muted, address](const QByteArray &output) {
              const int nodeId = bluetoothNodeIdFromPwDump(output, address);
@@ -629,6 +647,20 @@ void BluetoothClient::setMuted(bool muted) {
                                   muted ? QStringLiteral("1") : QStringLiteral("0")},
                       [](const QByteArray &) {});
            });
+}
+
+void BluetoothClient::assertDeviceMute(const QString &address) {
+  if (!address.isEmpty()) {
+    setNodeMuted(address, m_muted);
+  }
+}
+
+void BluetoothClient::pauseAll() {
+  for (auto it = m_playerOwners.cbegin(); it != m_playerOwners.cend(); ++it) {
+    m_dbusCall(kBlueZService, it.key(), kMediaPlayerInterface,
+               QStringLiteral("Pause"), QVariantList(),
+               [](const QVariant &, const QString &) {});
+  }
 }
 
 void BluetoothClient::updateTakeoverIncoming() {
