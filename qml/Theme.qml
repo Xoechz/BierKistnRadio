@@ -5,8 +5,9 @@ import QtQuick.Controls.Material
 QtObject {
     property bool darkMode: true
 
-    readonly property color backgroundColor: darkMode ? "#121212" : "#FAFAFA"
+    readonly property color backgroundColor: darkMode ? "#151515" : "#FAFAFA"
     readonly property color surfaceColor: darkMode ? "#1E1E1E" : "#FFFFFF"
+    readonly property color statusBarColor: darkMode ? "#101010" : "#DDDDDD"
     readonly property color primaryColor: darkMode ? "#BB86FC" : "#6200EE"
     readonly property color accentColor: darkMode ? "#03DAC6" : "#03DAC6"
     readonly property color textColor: darkMode ? "#FFFFFF" : "#1A1A1A"

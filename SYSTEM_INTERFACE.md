@@ -8,10 +8,10 @@ For architectural rationale, see [ADR 0001](./docs/adr/0001-mpris2-mopidy-as-pla
 
 ## 1. Flake output
 
-| Attribute | Type | Systems |
-| --- | --- | --- |
-| `packages.<system>.bierkistnRadio` | derivation | `x86_64-linux`, `aarch64-linux` |
-| `packages.<system>.default` | alias → `bierkistnRadio` | same |
+| Attribute                          | Type                     | Systems                         |
+|------------------------------------|--------------------------|---------------------------------|
+| `packages.<system>.bierkistnRadio` | derivation               | `x86_64-linux`, `aarch64-linux` |
+| `packages.<system>.default`        | alias → `bierkistnRadio` | same                            |
 
 The derivation produces a single executable at `bin/bierkistnRadio`. It is wrapped via `wrapQtAppsHook`, so the wrapper sets `QT_PLUGIN_PATH`, `QML_IMPORT_PATH`, and Qt platform plugin paths at runtime. There is no desktop file, no systemd service, and no D-Bus service file in this package — the system repo is responsible for launching the app and wiring it into the kiosk session.
 
@@ -44,20 +44,20 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 
 ### Session bus
 
-| Controller | Service | Role |
-| --- | --- | --- |
+| Controller      | Service                                                 | Role                                                                                                                                                                                                                                    |
+|-----------------|---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `SpotifyClient` | MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`) | Track metadata, transport (play/pause/next/previous/seek), position. Present once spotifyd is connected to Spotify; whether a track is loaded indicates active playback (see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md)). |
-| `ArtCache` | — | Reads `mpris:artUrl` values (remote `https://` URLs from Spotify CDN) |
+| `ArtCache`      | —                                                       | Reads `mpris:artUrl` values (remote `https://` URLs from Spotify CDN)                                                                                                                                                                   |
 
 **Note on the `$PID` suffix:** spotifyd's well-known names include its PID, which changes on restart. The app discovers the MPRIS2 name dynamically by listing bus names and matching `org.mpris.MediaPlayer2.spotifyd.*`, or uses `QDBusServiceWatcher` with a name match. The system repo must not hardcode the PID.
 
 ### System bus
 
-| Controller | Service | Role |
-| --- | --- | --- |
-| `WifiController` | `org.freedesktop.NetworkManager` | Scan, connect, disconnect, connection state |
-| `BluetoothClient` | `org.bluez` | `Device1` state (connected device, takeover kick), `MediaPlayer1` for best-effort AVRCP transport/metadata, `Adapter1.Set` for the `Discoverable` re-assertion |
-| `PlaybackController` | — | Facade only; no D-Bus of its own. Routes transport to `SpotifyClient` / `BluetoothClient`. |
+| Controller           | Service                          | Role                                                                                                                                                           |
+|----------------------|----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `WifiController`     | `org.freedesktop.NetworkManager` | Scan, connect, disconnect, connection state                                                                                                                    |
+| `BluetoothClient`    | `org.bluez`                      | `Device1` state (connected device, takeover kick), `MediaPlayer1` for best-effort AVRCP transport/metadata, `Adapter1.Set` for the `Discoverable` re-assertion |
+| `PlaybackController` | —                                | Facade only; no D-Bus of its own. Routes transport to `SpotifyClient` / `BluetoothClient`.                                                                     |
 
 ### Bluetooth connection model
 
@@ -92,16 +92,16 @@ The app uses `QDBusConnection::sessionBus()` for all spotifyd communication. No 
 
 ## 4. Runtime dependencies (on PATH or in environment)
 
-| Dependency | Used by | Notes |
-| --- | --- | --- |
-| `wpctl` | `VolumeController`, `BluetoothClient` | Shells out: `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct>%` (slider); `wpctl set-mute <node id>` (BT stream mute, [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md)). Comes from `wireplumber`. Must be on `PATH`. |
-| `pw-cli` / `pw-dump` | `BluetoothClient` | BlueZ sink node discovery for the A2DP mute. Ship with `pipewire`. Must be on `PATH`. |
-| `wireplumber` (daemon) | `VolumeController`, `BluetoothClient` | `wpctl` requires a running `wireplumber` daemon. |
-| `pipewire` (daemon) | audio routing | Required by wireplumber and for Bluetooth A2DP sink routing. |
-| `spotifyd` | `PlaybackController` | The Spotify backend. Exposes MPRIS2 on the session bus. Must be running with `use_mpris = true`. The system repo runs it as a **systemd user service** so it shares the kiosk user's session bus automatically. |
-| D-Bus session bus | `PlaybackController` | spotifyd's MPRIS2 interface lives on the session bus. Provided automatically by `systemd --user` when cage creates the logind session — no manual `DBUS_SESSION_BUS_ADDRESS` configuration needed. |
-| D-Bus system bus | `WifiController`, `BluetoothClient` | Standard system bus — always available under systemd. |
-| Qt Wayland platform plugin | rendering | Bundled via `wrapQtAppsHook`. Needs `wayland` client libs (provided by `qtwayland` build input). |
+| Dependency                 | Used by                               | Notes                                                                                                                                                                                                                                        |
+|----------------------------|---------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `wpctl`                    | `VolumeController`, `BluetoothClient` | Shells out: `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct>%` (slider); `wpctl set-mute <node id>` (BT stream mute, [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md)). Comes from `wireplumber`. Must be on `PATH`. |
+| `pw-cli` / `pw-dump`       | `BluetoothClient`                     | BlueZ sink node discovery for the A2DP mute. Ship with `pipewire`. Must be on `PATH`.                                                                                                                                                        |
+| `wireplumber` (daemon)     | `VolumeController`, `BluetoothClient` | `wpctl` requires a running `wireplumber` daemon.                                                                                                                                                                                             |
+| `pipewire` (daemon)        | audio routing                         | Required by wireplumber and for Bluetooth A2DP sink routing.                                                                                                                                                                                 |
+| `spotifyd`                 | `PlaybackController`                  | The Spotify backend. Exposes MPRIS2 on the session bus. Must be running with `use_mpris = true`. The system repo runs it as a **systemd user service** so it shares the kiosk user's session bus automatically.                              |
+| D-Bus session bus          | `PlaybackController`                  | spotifyd's MPRIS2 interface lives on the session bus. Provided automatically by `systemd --user` when cage creates the logind session — no manual `DBUS_SESSION_BUS_ADDRESS` configuration needed.                                           |
+| D-Bus system bus           | `WifiController`, `BluetoothClient`   | Standard system bus — always available under systemd.                                                                                                                                                                                        |
+| Qt Wayland platform plugin | rendering                             | Bundled via `wrapQtAppsHook`. Needs `wayland` client libs (provided by `qtwayland` build input).                                                                                                                                             |
 
 The app does **not** bundle or require:
 
@@ -138,8 +138,8 @@ The QML module is compiled into the binary via `qt_add_qml_module` (AOT-cached, 
 
 ## 7. Filesystem
 
-| Path | Purpose | Notes |
-|---|---|---|
+| Path                                          | Purpose  | Notes                                                                                                                                                                                          |
+|-----------------------------------------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `~/.cache/BierKistnRadio/BierKistnRadio/art/` | ArtCache | Album/station art cache. `QStandardPaths::CacheLocation` with orgName/appName both `BierKistnRadio`. The app creates this dir on startup. Needs a writable home directory or `XDG_CACHE_HOME`. |
 
 The app does **not** write to `/sys`, `/etc`, or any system path. It does not modify mopidy config, network config, or bluetooth config files — all system changes go through D-Bus.
@@ -209,20 +209,20 @@ For the full kiosk experience, the system repo's cage configuration should launc
 
 Verified against `modules/bierkistn.nix` and `modules/hosts/piKistn.nix` in the system repo (as of this writing). The following contract items are correctly implemented:
 
-| Contract requirement | Where |
-| --- | --- |
-| `bierkistn-radio` flake input (`github:Xoechz/BierKistnRadio`, nixpkgs follows) | `bierkistn.nix` `flake-file.inputs` |
-| Launch `bierkistnRadio` as cage's single child | `piKistn.nix` `services.cage` (`program = inputs.bierkistn-radio.packages.${system}.bierkistnRadio`) |
-| `QT_QPA_PLATFORM=wayland` | `services.cage.environment` |
-| Writable home / `XDG_CACHE_HOME=/home/kistn/.cache` (ArtCache §7, §8) | `services.cage.environment` |
-| spotifyd as a **systemd user service** so it shares the kiosk user's session bus (MPRIS2 on session bus, §3) | `bierkistn.nix` Home Module `bierkistn` (`systemd.user.services.spotifyd`, `--config-path /etc/spotifyd.conf`) |
-| `use_mpris = true` + `device_name = hostname` + 320kbps | `environment.etc.spotifyd.conf` |
-| Always discoverable + pairable base policy (`Discoverable`/`Pairable`/`DiscoverableTimeout=0`) with `AutoEnable=true` (`Powered` implicit via `AutoEnable`) | `bierkistn.nix` `hardware.bluetooth.settings.General` |
-| Auto-accept pairing (NoInputNoOutput, kiosk has no display) | `systemd.services.bt-agent` |
-| A2DP-sink-only + best-effort AVRCP (roles, `auto-connect = []`, `enable-sbc-xq`, `dummy-avrcp-player`, `device.profile`) | `services.pipewire.wireplumber.extraConfig."10-bierkistn"` |
-| PipeWire/WirePlumber started under the kiosk session (no graphical-session dependency) | `systemd.user.services.{pipewire,wireplumber}.wantedBy = default.target` |
-| **Power controls** polkit grant (`org.freedesktop.login1.*` for Reboot/Power Off, §10) | `security.polkit.extraConfig` |
-| kiosk user in `bluetooth` / `networkmanager` / `audio` / `video` groups | `users.users.kistn.extraGroups` |
+| Contract requirement                                                                                                                                        | Where                                                                                                          |
+|-------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `bierkistn-radio` flake input (`github:Xoechz/BierKistnRadio`, nixpkgs follows)                                                                             | `bierkistn.nix` `flake-file.inputs`                                                                            |
+| Launch `bierkistnRadio` as cage's single child                                                                                                              | `piKistn.nix` `services.cage` (`program = inputs.bierkistn-radio.packages.${system}.bierkistnRadio`)           |
+| `QT_QPA_PLATFORM=wayland`                                                                                                                                   | `services.cage.environment`                                                                                    |
+| Writable home / `XDG_CACHE_HOME=/home/kistn/.cache` (ArtCache §7, §8)                                                                                       | `services.cage.environment`                                                                                    |
+| spotifyd as a **systemd user service** so it shares the kiosk user's session bus (MPRIS2 on session bus, §3)                                                | `bierkistn.nix` Home Module `bierkistn` (`systemd.user.services.spotifyd`, `--config-path /etc/spotifyd.conf`) |
+| `use_mpris = true` + `device_name = hostname` + 320kbps                                                                                                     | `environment.etc.spotifyd.conf`                                                                                |
+| Always discoverable + pairable base policy (`Discoverable`/`Pairable`/`DiscoverableTimeout=0`) with `AutoEnable=true` (`Powered` implicit via `AutoEnable`) | `bierkistn.nix` `hardware.bluetooth.settings.General`                                                          |
+| Auto-accept pairing (NoInputNoOutput, kiosk has no display)                                                                                                 | `systemd.services.bt-agent`                                                                                    |
+| A2DP-sink-only + best-effort AVRCP (roles, `auto-connect = []`, `enable-sbc-xq`, `dummy-avrcp-player`, `device.profile`)                                    | `services.pipewire.wireplumber.extraConfig."10-bierkistn"`                                                     |
+| PipeWire/WirePlumber started under the kiosk session (no graphical-session dependency)                                                                      | `systemd.user.services.{pipewire,wireplumber}.wantedBy = default.target`                                       |
+| **Power controls** polkit grant (`org.freedesktop.login1.*` for Reboot/Power Off, §10)                                                                      | `security.polkit.extraConfig`                                                                                  |
+| kiosk user in `bluetooth` / `networkmanager` / `audio` / `video` groups                                                                                     | `users.users.kistn.extraGroups`                                                                                |
 
 ## 14. Missing / not-yet-implemented configurations
 

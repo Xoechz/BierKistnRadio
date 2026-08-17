@@ -7,7 +7,7 @@ import BierKistnRadio
 Rectangle {
     id: root
     height: Theme.statusBarHeight
-    color: Theme.surfaceColor
+    color: Theme.statusBarColor
 
     property bool switching: false
 
