@@ -87,6 +87,8 @@ void PlaybackController::switchToBluetooth() {
     setPlaybackState(BluetoothActive);
   } else {
     setPlaybackState(BluetoothWaiting);
+
+    m_bluetooth->ensureDiscoverable();
   }
 }
 
@@ -103,19 +105,34 @@ void PlaybackController::onBluetoothChanged() {
   bool connected = !m_bluetooth->connectedDeviceName().isEmpty();
 
   if (connected) {
-    // A BT stream appearing while in a Spotify state: mute it (ADR 0006
-    // invariant), but do NOT change the source. Connection state is unchanged.
-    if (m_playbackState != BluetoothWaiting &&
-        m_playbackState != BluetoothActive) {
-      m_bluetooth->setMuted(true);
-    } else if (m_playbackState == BluetoothWaiting) {
-      setPlaybackState(BluetoothActive);
-    }
+    onBluetoothConnected();
   } else {
-    // BT disconnect while in BluetoothActive: re-query -> a Spotify state.
-    if (m_playbackState == BluetoothActive) {
-      refreshSpotifyState();
-    }
+    onBluetoothDisconnected();
+  }
+}
+
+void PlaybackController::onBluetoothConnected() {
+  // A BT stream appearing while in a Spotify state: mute it (ADR 0006
+  // invariant), but do NOT change the source. Connection state is unchanged.
+  if (m_playbackState != BluetoothWaiting &&
+      m_playbackState != BluetoothActive) {
+    m_bluetooth->setMuted(true);
+  } else if (m_playbackState == BluetoothWaiting) {
+    m_bluetooth->setMuted(false); // prevent muted BT stream
+    setPlaybackState(BluetoothActive);
+  } else if (m_playbackState == BluetoothActive) {
+    // connection takeover
+  }
+}
+
+void PlaybackController::onBluetoothDisconnected() {
+  // BT disconnect while in BluetoothActive: re-query the BT subtree. If
+  // another device is still connected, the client retargets at it and we
+  // stay BluetoothActive; otherwise drop to BluetoothWaiting. Never touch
+  // the Spotify state on a BT disconnect — source switching is explicit.
+  if (m_playbackState == BluetoothActive) {
+    bool stillConnected = !m_bluetooth->connectedDeviceName().isEmpty();
+    setPlaybackState(stillConnected ? BluetoothActive : BluetoothWaiting);
   }
 }
 

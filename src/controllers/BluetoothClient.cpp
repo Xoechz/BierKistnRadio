@@ -16,10 +16,20 @@ QString BluetoothClient::trackAlbum() const { return m_trackAlbum; }
 qint64 BluetoothClient::position() const { return m_position; }
 qint64 BluetoothClient::duration() const { return m_duration; }
 bool BluetoothClient::positionPublished() const { return m_positionPublished; }
-bool BluetoothClient::isBluetoothPlaying() const { return m_isBluetoothPlaying; }
+bool BluetoothClient::isBluetoothPlaying() const {
+  return m_isBluetoothPlaying;
+}
 bool BluetoothClient::muted() const { return m_muted; }
 
 void BluetoothClient::resolveTakeover(TakeoverChoice) {}
+
+void BluetoothClient::setConnectedDeviceNameForTest(const QString &name) {
+  if (m_connectedDeviceName == name) {
+    return;
+  }
+  m_connectedDeviceName = name;
+  emit connectedDeviceNameChanged();
+}
 
 void BluetoothClient::ensureDiscoverable() {}
 

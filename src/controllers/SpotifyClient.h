@@ -43,6 +43,11 @@ public:
   Q_INVOKABLE void previous();
   Q_INVOKABLE void seek(qint64 positionMs);
 
+  // Test hook: lets unit tests drive presence/availability the way the
+  // MPRIS2 D-Bus subscription updates it at runtime, without a live bus.
+  void setAvailableForTest(bool available);
+  void setHasTrackForTest(bool hasTrack);
+
 signals:
   void titleChanged();
   void artistChanged();

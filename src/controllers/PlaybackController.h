@@ -12,7 +12,8 @@ class PlaybackController : public QObject {
   QML_SINGLETON
   QML_NAMED_ELEMENT(PlaybackController)
 
-  Q_PROPERTY(PlaybackState playbackState READ playbackState NOTIFY playbackStateChanged)
+  Q_PROPERTY(PlaybackState playbackState READ playbackState NOTIFY
+                 playbackStateChanged)
   Q_PROPERTY(bool isBluetoothActive READ isBluetoothActive NOTIFY
                  isBluetoothActiveChanged)
   Q_PROPERTY(SpotifyClient *spotify READ spotify CONSTANT)
@@ -54,6 +55,8 @@ private:
 
   void onSpotifyChanged();
   void onBluetoothChanged();
+  void onBluetoothConnected();
+  void onBluetoothDisconnected();
   void refreshSpotifyState();
   void setPlaybackState(PlaybackState next);
 };

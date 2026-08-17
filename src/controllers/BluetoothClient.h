@@ -1,9 +1,9 @@
 #pragma once
 
+#include <QDBusObjectPath>
 #include <QObject>
 #include <QString>
 #include <QStringList>
-#include <QDBusObjectPath>
 #include <qqmlintegration.h>
 
 class BluetoothClient : public QObject {
@@ -13,12 +13,12 @@ class BluetoothClient : public QObject {
 
   Q_PROPERTY(QString connectedDeviceName READ connectedDeviceName NOTIFY
                  connectedDeviceNameChanged)
-  Q_PROPERTY(bool takeoverPending READ takeoverPending NOTIFY
-                 takeoverPendingChanged)
-  Q_PROPERTY(bool statusPublished READ statusPublished NOTIFY
-                 statusPublishedChanged)
-  Q_PROPERTY(bool trackPublished READ trackPublished NOTIFY
-                 trackPublishedChanged)
+  Q_PROPERTY(
+      bool takeoverPending READ takeoverPending NOTIFY takeoverPendingChanged)
+  Q_PROPERTY(
+      bool statusPublished READ statusPublished NOTIFY statusPublishedChanged)
+  Q_PROPERTY(
+      bool trackPublished READ trackPublished NOTIFY trackPublishedChanged)
   Q_PROPERTY(QString trackTitle READ trackTitle NOTIFY trackMetadataChanged)
   Q_PROPERTY(QString trackArtist READ trackArtist NOTIFY trackMetadataChanged)
   Q_PROPERTY(QString trackAlbum READ trackAlbum NOTIFY trackMetadataChanged)
@@ -26,8 +26,8 @@ class BluetoothClient : public QObject {
   Q_PROPERTY(qint64 duration READ duration NOTIFY trackMetadataChanged)
   Q_PROPERTY(bool positionPublished READ positionPublished NOTIFY
                  positionPublishedChanged)
-  Q_PROPERTY(bool isBluetoothPlaying READ isBluetoothPlaying NOTIFY
-                 statusChanged)
+  Q_PROPERTY(
+      bool isBluetoothPlaying READ isBluetoothPlaying NOTIFY statusChanged)
   Q_PROPERTY(bool muted READ muted NOTIFY mutedChanged)
 
 public:
@@ -52,6 +52,10 @@ public:
 
   Q_INVOKABLE void resolveTakeover(TakeoverChoice choice);
   Q_INVOKABLE void ensureDiscoverable();
+
+  // Test hook: lets unit tests drive the connection state the way BlueZ/T7
+  // updates it at runtime, without needing a live A2DP source.
+  void setConnectedDeviceNameForTest(const QString &name);
 
   Q_INVOKABLE void play();
   Q_INVOKABLE void pause();

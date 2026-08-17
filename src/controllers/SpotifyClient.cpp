@@ -97,6 +97,16 @@ void SpotifyClient::seek(qint64 positionMs) {
   QDBusConnection::sessionBus().send(msg);
 }
 
+void SpotifyClient::setAvailableForTest(bool available) {
+  m_mprisService = available ? QStringLiteral("org.mpris.MediaPlayer2.spotifyd.test")
+                             : QString();
+  setAvailable(available);
+}
+
+void SpotifyClient::setHasTrackForTest(bool hasTrack) {
+  setTrackPresence(hasTrack);
+}
+
 void SpotifyClient::discoverServices() {
   auto *bus = QDBusConnection::sessionBus().interface();
   QDBusReply<QStringList> reply = bus->registeredServiceNames();
