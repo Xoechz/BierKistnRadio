@@ -1,6 +1,6 @@
 # BierKistn Radio UI
 
-The touch-screen interface for a portable, Pi 4B-based radio and Spotify speaker running NixOS in kiosk mode. This repository produces only the Qt6/QML application; the NixOS system configuration (cage, Mopidy, NetworkManager, PipeWire, polkit) lives in a separate system repository that consumes this repo as a flake input.
+The touch-screen interface for a portable, Pi 4B-based radio and Spotify speaker running NixOS in kiosk mode. This repository produces only the Qt6/QML application; the NixOS system configuration (cage, NetworkManager, PipeWire, polkit) lives in a separate system repository that consumes this repo as a flake input.
 
 ## Language
 
@@ -17,24 +17,39 @@ _Avoid_: fullscreen mode, kiosk app (the kiosk is the device's runtime, not a se
 ### Views
 
 **Status Bar**:
-The persistent top strip showing the clock, Wi-Fi state, Bluetooth state, and the active Source badge. Tapping Wi-Fi or Bluetooth opens the relevant Settings module.
+The persistent top strip showing the clock (left), the Source toggle (center), and Reboot/Shutdown icons (right). Wi-Fi and Bluetooth status are shown in the Right Sidebar, not the Status Bar.
 
 **Now-Playing**:
-The default view. Shows current Track or Station art, metadata, a scrubbable progress bar, transport controls, and a volume slider. Has a Bluetooth Mode variant for Bluetooth-sink playback.
+The default and only view. A three-column layout: Left Column (metadata), Center Column (album art + progress + transport), Right Sidebar (sliders + statuses + Wi-Fi settings). Has a Bluetooth Mode variant for Bluetooth-sink playback.
 
 **Bluetooth Mode**:
-The Now-Playing variant shown when the speaker is acting as a Bluetooth sink. No scrubber (a passive non-interactive progress bar may show `Position` while the phone publishes it). Best-effort AVRCP transport (Play/Pause/Next/Previous) is shown only while the phone publishes `Status`; metadata only while `Track` is published, else "No Metadata available". Paired Device still owns playback initiation; the speaker only rejects outgoing audio during a Spotify state via the mute invariant (see [ADR 0006](./adr/0006-source-clients-and-best-effort-avrcp-controls.md)). Bluetooth Mode is **opt-in** — a phone connecting via BT does NOT automatically enter Bluetooth Mode. The user must explicitly tap the Source toggle to switch. Has two sub-states: `BluetoothWaiting` (no device connected yet, show "Discoverable — connect your phone") and `BluetoothActive` (device connected, show "Controlled by <Paired Device>").
+The Now-Playing variant shown when the speaker is acting as a Bluetooth sink. No scrubber (a passive non-interactive progress bar may show `Position` while the phone publishes it and `duration > 0`). Best-effort AVRCP transport (Play/Pause/Next/Previous) is shown in the Center Column **only while the phone publishes `Status`**; metadata (title/artist/album) **only while `Track` is published**, with title suffixed "via \<device name\>"; when `Track` is not published → "Controlled by \<Paired Device\>" as title, "No metadata available" as subtitle. Paired Device still owns playback initiation; the speaker only mutes outgoing audio during a Spotify state via the mute invariant (see [ADR 0006](./adr/0006-source-clients-and-best-effort-avrcp-controls.md)). Bluetooth Mode is **opt-in** — a phone connecting via BT does NOT automatically enter Bluetooth Mode. The user must explicitly tap the Source toggle to switch. Has two sub-states: `BluetoothWaiting` (no device connected yet, show "Discoverable — connect your phone") and `BluetoothActive` (device connected, show metadata or "Controlled by \<Paired Device\>").
 _Avoid_: bluetooth screen, passthrough, sink mode (renamed).
 
 **Source**:
-The user-selectable playback input: Spotify or Bluetooth sink. Toggled from the Status Bar — tapping the Source badge switches between spotifyd (MPRIS2) and BT A2DP sink (PipeWire-routed audio). Not a full view. The current Source is derivable from `PlaybackController.playbackState`.
+The user-selectable playback input: Spotify or Bluetooth sink. Toggled from the Status Bar — tapping the Source toggle switches between spotifyd (MPRIS2) and BT A2DP sink (PipeWire-routed audio). Not a full view. The current Source is derivable from `PlaybackController.playbackState`.
 _Avoid_: input, mode, Source Selection (obsolete — the view was removed).
 
-**Source Selection**:
-The view for choosing a Source.
+**Right Sidebar**:
+The ~220px panel on the right side of the Now-Playing view. Always visible. Contains: brightness slider, volume slider, dark mode toggle, Bluetooth status text, Wi-Fi status text, and a "Wifi Settings" button that opens the Wi-Fi Dialog. Source-independent — shows the same content regardless of playback state.
+
+**Left Column**:
+The ~200px panel on the left side of the Now-Playing view. Shows metadata depending on playback state: track title, artist, album (SpotifyActive); error/hint text (SpotifyUnavailable/SpotifyWaiting/BluetoothWaiting); or device-connected metadata (BluetoothActive).
+
+**Center Column**:
+The central area of the Now-Playing view. Contains: 400×400 album art (with fallback SVG), a progress scrubber or passive bar below the art, and transport buttons below the progress. Content adapts to playback state.
+
+**Wi-Fi Dialog**:
+A popup overlay opened from the Right Sidebar's "Wifi Settings" button. Shows a scrollable SSID list with signal strength bars, a password field with on-screen keyboard, and a Connect button. Auto-scans on open.
+
+**Takeover Dialog**:
+A centered modal popup shown when a second Bluetooth device connects while one is already playing. Asks "Keep current or switch to new?" with a 10-second auto-select countdown defaulting to Keep Current.
+
+**Confirm Dialog**:
+A centered modal popup for reboot/shutdown confirmation. Two buttons: Cancel and Confirm (red). 10-second auto-dismiss.
 
 **Settings**:
-The view for on-device management: Wi-Fi connection, Bluetooth state, screen brightness, and power controls. Bluetooth is state-only (shows the connected device and takeover dialog) — pairing and connection happen on the phone, never on this screen.
+The previous full-screen view for on-device management. **Replaced by the Right Sidebar** (sliders, statuses) and the Wi-Fi Dialog (SSID list + password). No longer a separate view.
 
 ### Playback
 

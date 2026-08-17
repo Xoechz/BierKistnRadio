@@ -29,8 +29,8 @@ The Pi acts as an A2DP sink; the phone plays audio and streams it to the Pi. The
 
 ## Consequences
 
-- TODO **T7 collapses**: no `StartDiscovery`, no discovery-based device list. Implemented as: watch `org.bluez` `Device1` objects + `PropertiesChanged` for `Connected`/`Name`, and the takeover dialog flow.
-- TODO **T16 simplifies**: Settings → Bluetooth shows current connected device + takeover state; the Discoverable switch and device rows are gone.
+- **T7 collapses**: no `StartDiscovery`, no discovery-based device list. Implemented as: watch `org.bluez` `Device1` objects + `PropertiesChanged` for `Connected`/`Name`, and the takeover dialog flow.
+- **T16 simplifies**: Settings → Bluetooth shows current connected device + takeover state; the Discoverable switch and device rows are gone.
 - **`BluetoothController` API shrinks**: drops `devices`, `pair`, `connectDevice`, `disconnectDevice`, and the `setDiscoverable` *toggle*. Keeps a connection/state surface (`connectedDeviceName`, takeover flow, `disconnectCurrent`) and adds the one-shot `ensureDiscoverable()` re-assertion for `BluetoothWaiting`.
 - **`Powered` state stays a concern**: the app still needs the adapter powered; whether that's NixOS (`AutoEnable`) or app-asserted is a system-repo detail recorded in SYSTEM_INTERFACE.md.
 - **`Discoverable` re-assertion is app-owned**: BlueZ drops `Discoverable` on connect and never restores it; the app re-asserts it via `Adapter1.Set(Discoverable, true)` when entering `BluetoothWaiting` (user switched to Bluetooth with no device connected). No system-level `bluetoothctl discoverable on` enforcement service is needed.

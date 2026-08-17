@@ -1,0 +1,495 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="1024"
+   height="600"
+   viewBox="0 0 270.93333 158.75"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   sodipodi:docname="mockup.svg"
+   inkscape:export-filename="mockup.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <defs
+     id="defs1" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.3"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="1.4"
+     inkscape:cx="856.07143"
+     inkscape:cy="210.71429"
+     inkscape:document-units="mm"
+     inkscape:showpageshadow="0"
+     inkscape:pagecheckerboard="1"
+     inkscape:deskcolor="#505050"
+     inkscape:window-width="2560"
+     inkscape:window-height="1003"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="g17" />
+  <metadata
+     id="metadata1">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <rect
+     style="fill:#ffffff;stroke:none;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;fill-opacity:1"
+     id="rect3"
+     width="270.93301"
+     height="158.75"
+     x="0.00015970865"
+     y="-1.9539925e-14" />
+  <g
+     id="g17"
+     inkscape:label="right sidebar"
+     transform="matrix(0.99079091,0,0,0.99629095,3.3927404,0.49431752)">
+    <rect
+       style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       id="rect9-4"
+       width="60.854168"
+       height="150.8125"
+       x="209.79767"
+       y="7.6560006" />
+    <g
+       id="g18"
+       inkscape:label="volume slider"
+       transform="translate(10.250641,-4.5604971)">
+      <path
+         style="fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         d="M 219.27703,24.006543 V 111.80364"
+         id="path5-0" />
+      <ellipse
+         style="fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         id="path6-0"
+         cx="219.265"
+         cy="66.051445"
+         rx="2.0185895"
+         ry="2.0074458" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.55072px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         x="215.11627"
+         y="20.658997"
+         id="text18"
+         transform="scale(1.0027717,0.99723596)"><tspan
+           sodipodi:role="line"
+           id="tspan18"
+           style="stroke-width:0.566662"
+           x="215.11627"
+           y="20.658997">70% vol</tspan></text>
+      <path
+         style="fill:#262626;fill-opacity:1;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+         d="m 218.33385,44.650858 h 2"
+         id="path31" />
+    </g>
+    <g
+       id="g19"
+       inkscape:label="brightness slider"
+       transform="translate(30.48217,-5.0970262)">
+      <path
+         style="fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         d="M 219.27703,24.006543 V 111.80364"
+         id="path18" />
+      <circle
+         style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+         id="circle18"
+         cx="219.74081"
+         cy="46.082783"
+         r="2"
+         transform="matrix(1.0092947,0,0,1.0037229,-2.5182376,-0.59100363)" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.55072px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         x="215.11627"
+         y="20.658997"
+         id="text19"
+         transform="scale(1.0027717,0.99723596)"><tspan
+           sodipodi:role="line"
+           id="tspan19"
+           style="stroke-width:0.566662"
+           x="215.11627"
+           y="20.658997">70% bright</tspan></text>
+    </g>
+    <g
+       id="g22">
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.55072px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         x="223.72452"
+         y="153.01097"
+         id="text20"
+         transform="scale(1.0027717,0.99723594)"><tspan
+           sodipodi:role="line"
+           style="stroke-width:0.566662"
+           x="223.72452"
+           y="153.01097"
+           id="tspan21">Wifi Settings</tspan></text>
+      <rect
+         style="fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         id="rect19"
+         width="43.969852"
+         height="6.1700845"
+         x="217.06128"
+         y="148.83234" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.55072px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         x="213.2332"
+         y="126.64818"
+         id="text22"
+         transform="scale(1.0027717,0.99723595)"><tspan
+           sodipodi:role="line"
+           id="tspan22"
+           style="stroke-width:0.566662"
+           x="213.2332"
+           y="126.64818">Bluetooth Status:</tspan><tspan
+           sodipodi:role="line"
+           style="stroke-width:0.566662"
+           x="213.2332"
+           y="131.08658"
+           id="tspan23">Connected to Elias S25 FE</tspan></text>
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.55072px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round"
+         x="214.30925"
+         y="139.02255"
+         id="text24"
+         transform="scale(1.0027717,0.99723595)"><tspan
+           sodipodi:role="line"
+           id="tspan24"
+           style="stroke-width:0.566662"
+           x="214.30925"
+           y="139.02255">Wifi Status:</tspan><tspan
+           sodipodi:role="line"
+           style="stroke-width:0.566662"
+           x="214.30925"
+           y="143.46095"
+           id="tspan25">Connected to Bruckner1</tspan><tspan
+           sodipodi:role="line"
+           style="stroke-width:0.566662"
+           x="214.30925"
+           y="147.89935"
+           id="tspan26" /></text>
+    </g>
+    <g
+       id="g28"
+       inkscape:label="darkmode"
+       transform="translate(-9.1716263,1.0730581)">
+      <rect
+         style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+         id="rect2-8"
+         width="13.229"
+         height="5.2916665"
+         x="234.61732"
+         y="124.71358"
+         rx="2.6458333"
+         ry="2.6458333"
+         transform="matrix(1.0092947,0,0,1.0037229,-4.1892066,-12.662908)" />
+      <circle
+         style="fill:#262626;fill-opacity:1;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+         id="path2-7"
+         cx="237.25362"
+         cy="127.35202"
+         r="2.6458333"
+         transform="matrix(1.0092947,0,0,1.0037229,-4.1892066,-12.662908)" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.55072px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.566661;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+         x="247.39723"
+         y="116.42587"
+         id="text29"
+         transform="scale(1.0027717,0.99723595)"><tspan
+           sodipodi:role="line"
+           style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.55072px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.566662"
+           x="247.39723"
+           y="116.42587"
+           id="tspan30">Darkmode</tspan></text>
+    </g>
+  </g>
+  <g
+     id="g9"
+     inkscape:label="left sidebar"
+     transform="matrix(0.99079091,0,0,0.99629095,0.01409894,-0.3044869)">
+    <rect
+       style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       id="rect9"
+       width="60.854168"
+       height="150.8125"
+       x="0.26726952"
+       y="8.5526247" />
+    <text
+       xml:space="preserve"
+       style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       x="5.8799295"
+       y="14.699824"
+       id="text10"><tspan
+         sodipodi:role="line"
+         id="tspan10"
+         style="stroke-width:0.563"
+         x="5.8799295"
+         y="14.699824">Track:</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.52777px;font-family:Sans;-inkscape-font-specification:'Sans, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.563"
+         x="5.8799295"
+         y="19.109537"
+         id="tspan11">Highway to Hell(do not </tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.52777px;font-family:Sans;-inkscape-font-specification:'Sans, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.563"
+         x="5.8799295"
+         y="23.564976"
+         id="tspan16">animate this by moving </tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.52777px;font-family:Sans;-inkscape-font-specification:'Sans, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.563"
+         x="5.8799295"
+         y="28.020414"
+         id="tspan17">instead break)</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       x="5.3453903"
+       y="54.255714"
+       id="text13"><tspan
+         sodipodi:role="line"
+         id="tspan12"
+         style="stroke-width:0.563"
+         x="5.3453903"
+         y="54.255714">Artist:</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.52777px;font-family:Sans;-inkscape-font-specification:'Sans, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.563"
+         x="5.3453903"
+         y="58.665428"
+         id="tspan13">AC/DC</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       x="5.0781212"
+       y="92.207985"
+       id="text15"><tspan
+         sodipodi:role="line"
+         id="tspan14"
+         style="stroke-width:0.563"
+         x="5.0781212"
+         y="92.207985">Album</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.563"
+         x="5.0781212"
+         y="96.617699"
+         id="tspan15">...</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       x="4.3706818"
+       y="121.12212"
+       id="text15-7"><tspan
+         sodipodi:role="line"
+         id="tspan14-0"
+         style="stroke-width:0.563"
+         x="4.3706818"
+         y="121.12212">Release Date</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:100;font-stretch:normal;font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;stroke-width:0.563"
+         x="4.3706818"
+         y="125.53184"
+         id="tspan15-0">17.11.1979</tspan></text>
+  </g>
+  <g
+     id="g6"
+     inkscape:label="progessslider(only active in spotify)"
+     transform="translate(-0.06406911,-7.7669334)">
+    <path
+       style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       d="M 69.852001,142.18739 H 201.08133"
+       id="path5" />
+    <circle
+       style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       id="path6"
+       cx="106.90781"
+       cy="142.05374"
+       r="2" />
+    <text
+       xml:space="preserve"
+       style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       x="70.826424"
+       y="146.19644"
+       id="text6"><tspan
+         sodipodi:role="line"
+         style="stroke-width:0.563"
+         x="70.826424"
+         y="146.19644"
+         id="tspan7">0:34</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       x="192.9686"
+       y="146.19643"
+       id="text8"><tspan
+         sodipodi:role="line"
+         id="tspan8"
+         style="stroke-width:0.563"
+         x="192.9686"
+         y="146.19643">3:56</tspan><tspan
+         sodipodi:role="line"
+         style="stroke-width:0.563"
+         x="192.9686"
+         y="150.60614"
+         id="tspan9" /></text>
+  </g>
+  <g
+     id="g4"
+     inkscape:label="albumcover"
+     transform="translate(0,-9.8889726)">
+    <rect
+       style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       id="rect1"
+       width="105.83334"
+       height="105.83334"
+       x="82.549995"
+       y="26.458328"
+       rx="0.1"
+       ry="0.1" />
+    <text
+       xml:space="preserve"
+       style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       x="123.8603"
+       y="80.662636"
+       id="text2"><tspan
+         sodipodi:role="line"
+         id="tspan2"
+         style="stroke-width:0.563"
+         x="123.8603"
+         y="80.662636">Album Cover</tspan><tspan
+         sodipodi:role="line"
+         style="stroke-width:0.563"
+         x="123.8603"
+         y="85.07235"
+         id="tspan3" /></text>
+  </g>
+  <g
+     id="g5"
+     inkscape:label="statusbar">
+    <text
+       xml:space="preserve"
+       style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       x="2.4554467"
+       y="5.6126599"
+       id="text1"><tspan
+         sodipodi:role="line"
+         id="tspan1"
+         style="stroke-width:0.563"
+         x="2.4554467"
+         y="5.6126599">12:34</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       x="214.61743"
+       y="5.8799291"
+       id="text21"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:none;stroke:#7d7d7d;stroke-width:0.563;stroke-opacity:1"
+         x="214.61743"
+         y="5.8799291"
+         id="tspan27">Reboot and shuttdown icons</tspan></text>
+    <rect
+       style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       id="rect5"
+       width="270.93332"
+       height="7.9375"
+       x="0.28149951"
+       y="0.28149951" />
+  </g>
+  <g
+     id="g2"
+     inkscape:label="toggle"
+     transform="translate(-1.6555809,-12.027129)">
+    <rect
+       style="fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round"
+       id="rect2"
+       width="13.229"
+       height="5.2916665"
+       x="128.85217"
+       y="13.898015"
+       rx="2.6458333"
+       ry="2.6458333" />
+    <circle
+       style="fill:#00ba04;fill-opacity:1;stroke:none;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       id="path2"
+       cx="131.48846"
+       cy="16.536457"
+       r="2.6458333" />
+    <text
+       xml:space="preserve"
+       style="font-weight:100;font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';writing-mode:lr-tb;direction:ltr;fill:none;fill-opacity:1;stroke:#00ba04;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       x="112.16443"
+       y="17.4814"
+       id="text4"><tspan
+         sodipodi:role="line"
+         id="tspan4"
+         style="fill:none;stroke:#00ba04;stroke-width:0.563;stroke-opacity:1"
+         x="112.16443"
+         y="17.4814">Spotify</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-weight:100;font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';writing-mode:lr-tb;direction:ltr;fill:#24f603;fill-opacity:1;stroke:#22f210;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       x="145.94606"
+       y="15.686011"
+       id="text5"><tspan
+         sodipodi:role="line"
+         id="tspan5"
+         style="stroke-width:0.563"
+         x="145.94606"
+         y="15.686011" /></text>
+    <text
+       xml:space="preserve"
+       style="font-weight:100;font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Thin';writing-mode:lr-tb;direction:ltr;fill:#24f603;fill-opacity:1;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       x="143.11124"
+       y="17.62314"
+       id="text7"><tspan
+         sodipodi:role="line"
+         id="tspan6"
+         style="stroke:#7d7d7d;stroke-width:0.563;stroke-opacity:1"
+         x="143.11124"
+         y="17.62314">Bluetooth</tspan></text>
+  </g>
+  <text
+     xml:space="preserve"
+     style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;stroke:#7d7d7d;stroke-opacity:1"
+     x="103.70058"
+     y="130.69479"
+     id="text23"><tspan
+       sodipodi:role="line"
+       id="tspan20"
+       style="stroke-width:0.563;fill:none;stroke:#7d7d7d;stroke-opacity:1"
+       x="103.70058"
+       y="130.69479" /></text>
+  <text
+     xml:space="preserve"
+     style="font-size:3.52777px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font, Normal';writing-mode:lr-tb;direction:ltr;fill:none;stroke:#7d7d7d;stroke-width:0.562999;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+     x="102.64604"
+     y="148.84763"
+     id="text28"><tspan
+       sodipodi:role="line"
+       id="tspan28"
+       style="stroke-width:0.563"
+       x="102.64604"
+       y="148.84763">Prev Play/Stop Next Iconbuttons</tspan></text>
+</svg>
