@@ -159,18 +159,18 @@ These affect `QStandardPaths` locations (cache, config, data). The system repo s
 
 ## 9. Brightness control (open)
 
-Brightness control is not yet implemented (TODO T16). The system repo should provide one of:
+Brightness control is not yet implemented (TODO T26). The system repo should provide one of:
 
 - A writable `/sys/class/backlight/<panel>/brightness` path, or
 - A D-Bus backlight interface (e.g. `org.freedesktop.login1` or a custom helper).
 
-The app will read/write brightness from whichever interface the system provides. This decision should be coordinated when T16 is implemented.
+The app will read/write brightness from whichever interface the system provides. This decision should be coordinated when T26 is implemented.
 
 ---
 
 ## 10. Power controls
 
-The app will offer Reboot / Power Off buttons (TODO T16). The intended mechanism is `org.freedesktop.login1` D-Bus calls (`PowerOff`, `Reboot`). The system repo must grant the kiosk user permission to call these (polkit rule for `org.freedesktop.login1.power-off` / `org.freedesktop.login1.reboot`).
+The app offers Reboot / Power Off buttons via `PowerController` (TODO T19 — confirm dialog runs `systemctl reboot`/`poweroff` through QProcess). The intended alternative is `org.freedesktop.login1` D-Bus calls (`PowerOff`, `Reboot`). The system repo must grant the kiosk user permission to trigger these (polkit rule for `org.freedesktop.login1.power-off` / `org.freedesktop.login1.reboot`, or the `systemctl`-equivalent actions).
 
 ---
 
@@ -242,7 +242,7 @@ This may not bite in practice because BlueZ's net-effect is often gated by the c
 
 ### 14.2 Brightness control (still open, §9)
 
-§9 is marked "open" pending T16, and nothing has been supplied:
+§9 is marked "open" pending T26, and nothing has been supplied:
 
 - No writable `/sys/class/backlight/<panel>/brightness` is configured, and
 - No D-Bus backlight interface is exposed.

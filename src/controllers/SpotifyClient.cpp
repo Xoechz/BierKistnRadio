@@ -3,6 +3,7 @@
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QDBusMessage>
+#include <QDBusServiceWatcher>
 #include <QTimer>
 
 namespace {
@@ -34,9 +35,20 @@ const QString kStopped = QStringLiteral("Stopped");
 } // namespace
 
 SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent) {
-  connect(QDBusConnection::sessionBus().interface(),
-          &QDBusConnectionInterface::serviceOwnerChanged, this,
-          &SpotifyClient::onServiceOwnerChanged);
+  // QDBusServiceWatcher only matches exact bus names, but spotifyd's MPRIS2
+  // name carries its PID and changes on restart. Watch every prefixed name we
+  // discover, and re-list periodically to catch new PIDs' replacements.
+  if (QDBusConnection::sessionBus().isConnected()) {
+    m_watcher = new QDBusServiceWatcher(
+        QString(), QDBusConnection::sessionBus(),
+        QDBusServiceWatcher::WatchForOwnerChange, this);
+    connect(m_watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+            &SpotifyClient::onServiceOwnerChanged);
+  }
+
+  m_rescanTimer.setInterval(5000);
+  connect(&m_rescanTimer, &QTimer::timeout, this, &SpotifyClient::discoverServices);
+  m_rescanTimer.start();
 
   QTimer::singleShot(0, this, &SpotifyClient::discoverServices);
 }
@@ -117,6 +129,9 @@ void SpotifyClient::discoverServices() {
   for (const QString &name : reply.value()) {
     if (name.startsWith(kMprisPrefix)) {
       m_mprisService = name;
+      if (m_watcher) {
+        m_watcher->addWatchedService(name);
+      }
       subscribeToMpris();
       fetchInitialMprisState();
       setAvailable(true);
@@ -134,6 +149,9 @@ void SpotifyClient::onServiceOwnerChanged(const QString &name,
 
   if (!newOwner.isEmpty()) {
     m_mprisService = name;
+    if (m_watcher) {
+      m_watcher->addWatchedService(name);
+    }
     subscribeToMpris();
     fetchInitialMprisState();
     setAvailable(true);

@@ -3,6 +3,7 @@
 #include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QDBusMetaType>
 #include <QDBusObjectPath>
 #include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
@@ -98,10 +99,11 @@ BluetoothClient::BluetoothClient(QObject *parent) : QObject(parent) {
 
   // Live object additions/removals while running. `org.bluez` implements the
   // standard DBus object-manager interface at `/`.
+  qDBusRegisterMetaType<QMap<QString, QVariantMap>>();
   QDBusConnection::sessionBus().connect(
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesAdded"), this,
-      SLOT(onInterfacesAdded(QDBusObjectPath, QVariantMap)));
+      SLOT(onInterfacesAdded(QDBusObjectPath, QMap<QString, QVariantMap>)));
   QDBusConnection::sessionBus().connect(
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesRemoved"), this,

@@ -1,11 +1,13 @@
 #pragma once
 
-#include <QObject>
-#include <QString>
-#include <QStringList>
 #include <QDBusArgument>
 #include <QDBusObjectPath>
 #include <QDBusReply>
+#include <QDBusServiceWatcher>
+#include <QObject>
+#include <QString>
+#include <QStringList>
+#include <QTimer>
 #include <QVariantMap>
 #include <qqmlintegration.h>
 
@@ -71,6 +73,8 @@ private:
   bool m_available = false;
   QString m_mprisService;
   QDBusObjectPath m_trackId;
+  QDBusServiceWatcher *m_watcher = nullptr;
+  QTimer m_rescanTimer;
 
   void discoverServices();
   void onServiceOwnerChanged(const QString &name, const QString &oldOwner,
