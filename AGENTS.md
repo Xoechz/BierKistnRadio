@@ -72,7 +72,7 @@ Three-column layout driven by `PlaybackController.playbackState` — a five-stat
 └──────────┴──────────────────────────┴──────────────┘
 ```
 
-#### Left Column (metadata, ~200px wide)
+#### Left Column (metadata, ~230px wide)
 
 Content depends on playback state:
 
@@ -97,7 +97,7 @@ Content depends on playback state:
   - `BluetoothActive` + `statusPublished`: Play/Pause + Next + Previous buttons (best-effort AVRCP). Play/Pause glyph reflects `isBluetoothPlaying`.
   - All other states: no transport.
 
-#### Right Sidebar (~220px wide, always visible)
+#### Right Sidebar (~230px wide, always visible)
 
 Top-to-bottom, source-independent:
 1. **Brightness slider** (vertical, 0–100%, label shows current %)

@@ -61,8 +61,10 @@ qt_add_qml_module(bierkistn_core
         qml/Main.qml
         qml/Theme.qml
         qml/StatusBar.qml
-        qml/views/NowPlaying.qml
-        qml/views/Settings.qml
+        qml/ConfirmDialog.qml
+        qml/LeftColumn.qml
+        qml/CenterColumn.qml
+        qml/RightSidebar.qml
 )
 
 # --- Application executable ---

@@ -5,10 +5,21 @@ import QtQuick.Layouts
 import BierKistnRadio
 
 Rectangle {
+    id: root
     height: Theme.statusBarHeight
     color: Theme.surfaceColor
 
-    property string activeSource: "Spotify"
+    property bool switching: false
+
+    readonly property bool bluetoothActive: {
+        switch (PlaybackController.playbackState) {
+        case PlaybackController.BluetoothWaiting:
+        case PlaybackController.BluetoothActive:
+            return true
+        default:
+            return false
+        }
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -16,6 +27,7 @@ Rectangle {
         anchors.rightMargin: Theme.defaultSpacing
         spacing: Theme.defaultSpacing
 
+        // ---------- Clock (left) ----------
         Label {
             id: clockLabel
             text: Qt.formatTime(new Date(), "HH:mm")
@@ -25,72 +37,112 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
         }
 
+        // ---------- Source toggle (center) ----------
         Item { Layout.fillWidth: true }
 
         Rectangle {
-            id: sourceBadge
-            width: 100
-            height: 32
-            radius: 16
-            color: Theme.accentColor
-            opacity: sourceBadge.switching ? 0.5 : 0.2
+            id: sourceToggle
             Layout.alignment: Qt.AlignVCenter
-
-            property bool switching: false
+            width: 200
+            height: 32
+            radius: height / 2
+            color: Theme.surfaceColor
+            border.color: Theme.primaryColor
+            border.width: 1
+            opacity: root.switching ? 0.3 : 1.0
 
             Label {
                 anchors.centerIn: parent
-                text: sourceBadge.switching ? "…" : activeSource
+                text: root.switching ? "…" : ""
+                font.pixelSize: Theme.fontSizeMedium
                 color: Theme.accentColor
-                font.pixelSize: Theme.fontSizeSmall
-                font.bold: true
             }
 
-            MouseArea {
+            RowLayout {
                 anchors.fill: parent
-                onClicked: {
-                    if (sourceBadge.switching)
-                        return
-                    sourceBadge.switching = true
-                    if (activeSource === "Spotify") {
-                        PlaybackController.switchToBluetooth()
-                    } else {
-                        PlaybackController.switchToSpotify()
-                    }
+                anchors.leftMargin: 16
+                anchors.rightMargin: 16
+                spacing: 8
+
+                Label {
+                    text: "Spotify"
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.bold: !root.bluetoothActive
+                    color: root.bluetoothActive ? Theme.secondaryTextColor : Theme.accentColor
+                }
+                Label {
+                    text: "○══○"
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.secondaryTextColor
+                }
+                Label {
+                    text: "Bluetooth"
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.bold: root.bluetoothActive
+                    color: root.bluetoothActive ? Theme.accentColor : Theme.secondaryTextColor
                 }
             }
 
-            Connections {
-                target: PlaybackController
-                function onPlaybackStateChanged() {
-                    sourceBadge.switching = false
-                }
-            }
-        }
-
-        Label {
-            text: "📶"
-            font.pixelSize: 20
-            color: Theme.textColor
-            Layout.alignment: Qt.AlignVCenter
-
             MouseArea {
                 anchors.fill: parent
-                onClicked: appRouter.showSettings("wifi")
+                enabled: !root.switching
+                onClicked: root.switchSource()
             }
         }
 
-        Label {
-            text: "🔵"
-            font.pixelSize: 20
-            color: Theme.textColor
+        Item { Layout.fillWidth: true }
+
+        // ---------- Reboot / Shutdown (right) ----------
+        RowLayout {
             Layout.alignment: Qt.AlignVCenter
+            spacing: Theme.defaultSpacing
 
-            MouseArea {
-                anchors.fill: parent
-                onClicked: appRouter.showSettings("bluetooth")
+            Button {
+                text: "↻"
+                flat: true
+                font.pixelSize: Theme.fontSizeLarge
+                Material.foreground: Theme.textColor
+                onClicked: powerDialog.openFor("reboot")
+            }
+            Button {
+                text: "⏻"
+                flat: true
+                font.pixelSize: Theme.fontSizeLarge
+                Material.foreground: Theme.errorColor
+                onClicked: powerDialog.openFor("shutdown")
             }
         }
+    }
+
+    ConfirmDialog {
+        id: powerDialog
+    }
+
+    function switchSource() {
+        if (root.switching) {
+            return
+        }
+        root.switching = true
+        resetTimer.restart()
+        if (root.bluetoothActive) {
+            PlaybackController.switchToSpotify()
+        } else {
+            PlaybackController.switchToBluetooth()
+        }
+    }
+
+    Connections {
+        target: PlaybackController
+        function onPlaybackStateChanged() {
+            root.switching = false
+            resetTimer.stop()
+        }
+    }
+
+    Timer {
+        id: resetTimer
+        interval: 3000
+        onTriggered: root.switching = false
     }
 
     Timer {
