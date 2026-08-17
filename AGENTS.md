@@ -100,12 +100,11 @@ Content depends on playback state:
 #### Right Sidebar (~230px wide, always visible)
 
 Top-to-bottom, source-independent:
-1. **Brightness slider** (vertical, 0–100%, label shows current %)
-2. **Volume slider** (vertical, 0–150%, label shows current %, tick mark at 100%)
-3. **Dark mode toggle** (small switch, sun/moon icon)
-4. **Bluetooth status** — two-line block: "Bluetooth" label + status text (`BluetoothWaiting`: "Discoverable", `BluetoothActive`: "Connected to \<name\>", unavailable: "Not available")
-5. **Wi-Fi status** — two-line block: "Wi-Fi" label + status text ("Connected to \<SSID\>" or "Not connected")
-6. **"Wifi Settings" button** — opens the Wi-Fi dialog (§4.D)
+1. **Volume / Brightness sliders** — side by side at the top, **Volume on the left, Brightness on the right**, both vertical. Volume: 0–150%, label shows current %, tick mark at 100%. Brightness: 0–100%, label shows current %.
+2. **Dark mode toggle** (small switch, sun/moon icon)
+3. **Bluetooth status** — two-line block: "Bluetooth" label + status text (`BluetoothWaiting`: "Discoverable", `BluetoothActive`: "Connected to \<name\>", unavailable: "Not available")
+4. **Wi-Fi status** — two-line block: "Wi-Fi" label + status text ("Connected to \<SSID\>" or "Not connected")
+5. **"Wifi Settings" button** — opens the Wi-Fi dialog (§4.D)
 
 ### C. Takeover Dialog (modal overlay)
 

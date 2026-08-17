@@ -65,6 +65,7 @@ qt_add_qml_module(bierkistn_core
         qml/LeftColumn.qml
         qml/CenterColumn.qml
         qml/RightSidebar.qml
+        qml/WifiDialog.qml
 )
 
 # --- Application executable ---
