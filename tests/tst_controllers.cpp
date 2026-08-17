@@ -4,6 +4,7 @@
 #include "SpotifyClient.h"
 #include "VolumeController.h"
 #include "WifiController.h"
+#include <QDBusObjectPath>
 #include <QtTest/QtTest>
 #include <functional>
 
@@ -14,6 +15,16 @@ private slots:
   void testPlaybackControllerDefaults();
   void testPlaybackControllerBluetoothTransitions();
   void testWifiControllerDefaults();
+  void testWifiControllerScanFindsWifiDevice();
+  void testWifiControllerScanIssuesRequestScanOnWireless();
+  void testWifiControllerScanNoWifiDevice();
+  void testWifiControllerAccessPointAddedRemoved();
+  void testWifiControllerConnectIssuesAddAndConnect();
+  void testWifiControllerConnectOpenNetworkNoSecurity();
+  void testWifiControllerDefaultTracksDisconnected();
+  void testWifiControllerTracksActiveConnectionState();
+  void testWifiControllerSurfacesConnectError();
+  void testWifiControllerStaticHelpers();
   void testBluetoothClientDefaults();
   void testSpotifyClientDefaults();
   void testVolumeControllerDefaults();
@@ -104,7 +115,288 @@ void TestControllers::testWifiControllerDefaults() {
   QCOMPARE(c.connected(), false);
   QCOMPARE(c.ssid(), QString());
   QCOMPARE(c.signalStrength(), 0);
-  QCOMPARE(c.networks(), QStringList());
+  QCOMPARE(c.errorMessage(), QString());
+  QCOMPARE(c.networks(), QVariantList());
+}
+
+void TestControllers::testWifiControllerStaticHelpers() {
+  // SSID byte array parsing.
+  QCOMPARE(WifiController::ssidFromVariant(QVariant(QByteArray("MyNet"))),
+           QStringLiteral("MyNet"));
+  QCOMPARE(WifiController::ssidFromVariant(QVariant(QStringLiteral("Direct"))),
+           QStringLiteral("Direct"));
+  QCOMPARE(WifiController::ssidFromVariant(QVariant()), QString());
+
+  // Secured detection from a{sv} props.
+  QVERIFY(WifiController::accessPointSecured(
+      {{QStringLiteral("WpaFlags"), QVariant(0x00000008)}}));
+  QVERIFY(WifiController::accessPointSecured(
+      {{QStringLiteral("RsnFlags"), QVariant(0x00000008)}}));
+  QVERIFY(WifiController::accessPointSecured(
+      {{QStringLiteral("Flags"), QVariant(0x00000001)}})); // privacy flag
+  QVERIFY(!WifiController::accessPointSecured(QVariantMap()));
+
+  // Strength extraction.
+  QCOMPARE(WifiController::accessPointStrength(
+               {{QStringLiteral("Strength"), QVariant(62)}}),
+           62);
+
+  // Connection profile dict (secured WPA-PSK network).
+  const QString ssid = QStringLiteral("MyWifi");
+  const QString password = QStringLiteral("hunter2");
+  const QVariantMap profile =
+      WifiController::connectionSettings(ssid, password, true);
+  const QVariantMap conn = profile[QStringLiteral("connection")].toMap();
+  QCOMPARE(conn[QStringLiteral("type")].toString(),
+           QStringLiteral("802-11-wireless"));
+  QCOMPARE(conn[QStringLiteral("id")].toString(), ssid);
+  const QVariantMap wireless = profile[QStringLiteral("802-11-wireless")].toMap();
+  QCOMPARE(wireless[QStringLiteral("ssid")].toByteArray(), ssid.toUtf8());
+  QCOMPARE(wireless[QStringLiteral("security")].toString(),
+           QStringLiteral("802-11-wireless-security"));
+  const QVariantMap security =
+      profile[QStringLiteral("802-11-wireless-security")].toMap();
+  QCOMPARE(security[QStringLiteral("key-mgmt")].toString(),
+           QStringLiteral("wpa-psk"));
+  QCOMPARE(security[QStringLiteral("psk")].toString(), password);
+}
+
+void TestControllers::testWifiControllerScanFindsWifiDevice() {
+  WifiController c;
+  QString foundDevicePath;
+  c.setDbusCallableForTest(
+      [&foundDevicePath](const QString &, const QString &objectPath,
+                         const QString &interface, const QString &method,
+                         const QVariantList &args,
+                         const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.freedesktop.DBus.Properties") &&
+            method == QStringLiteral("Get")) {
+          const QString prop = args.value(1).toString();
+          if (prop == QStringLiteral("DeviceType")) {
+            QVariant type;
+            if (objectPath.endsWith(QStringLiteral("/0")))
+              type = QVariant(1); // ethernet
+            else if (objectPath.endsWith(QStringLiteral("/1")))
+              type = QVariant(2); // wifi
+            onFinished(type, QString());
+          }
+          return;
+        }
+        if (method == QStringLiteral("GetDevices")) {
+          onFinished(QVariant::fromValue(
+                         QList<QDBusObjectPath>{QDBusObjectPath(
+                                                    QStringLiteral("/org/freedesktop/NetworkManager/Devices/0")),
+                                                QDBusObjectPath(
+                                                    QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"))}),
+                     QString());
+          return;
+        }
+        foundDevicePath = objectPath; // RequestScan on the wifi device
+        onFinished(QVariant(), QString());
+      });
+  c.scan();
+  QVERIFY(!foundDevicePath.isEmpty());
+  QVERIFY(foundDevicePath.endsWith(QStringLiteral("/1")));
+}
+
+void TestControllers::testWifiControllerScanIssuesRequestScanOnWireless() {
+  WifiController c;
+  bool scanOnWirelessInterface = false;
+  c.setDbusCallableForTest(
+      [&scanOnWirelessInterface](
+          const QString &, const QString &objectPath, const QString &interface,
+          const QString &method, const QVariantList &,
+          const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.freedesktop.NetworkManager.Device.Wireless") &&
+            method == QStringLiteral("RequestScan")) {
+          scanOnWirelessInterface = true;
+          onFinished(QVariant(), QString());
+          return;
+        }
+        if (interface == QStringLiteral("org.freedesktop.DBus.Properties") &&
+            method == QStringLiteral("Get") &&
+            objectPath.endsWith(QStringLiteral("/WifiDevice"))) {
+          onFinished(QVariant(2), QString());
+          return;
+        }
+        if (method == QStringLiteral("GetDevices")) {
+          onFinished(QVariant::fromValue(QList<QDBusObjectPath>{
+                          QDBusObjectPath(QStringLiteral("/org/freedesktop/NetworkManager/Devices/WifiDevice"))}),
+                     QString());
+          return;
+        }
+        onFinished(QVariant(), QString());
+      });
+  c.scan();
+  QVERIFY2(scanOnWirelessInterface,
+           "scan() must issue RequestScan on the Wireless interface of the wifi device");
+}
+
+void TestControllers::testWifiControllerScanNoWifiDevice() {
+  WifiController c;
+  c.setDbusCallableForTest(
+      [](const QString &, const QString &objectPath, const QString &interface,
+         const QString &method, const QVariantList &args,
+         const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (method == QStringLiteral("GetDevices")) {
+          onFinished(QVariant::fromValue(QList<QDBusObjectPath>{
+                          QDBusObjectPath(QStringLiteral("/org/freedesktop/NetworkManager/Devices/eth0"))}),
+                     QString());
+          return;
+        }
+        if (interface == QStringLiteral("org.freedesktop.DBus.Properties") &&
+            args.value(1).toString() == QStringLiteral("DeviceType")) {
+          onFinished(QVariant(1), QString()); // ethernet only, no wifi
+          return;
+        }
+        onFinished(QVariant(), QString());
+      });
+  c.scan();
+  QCOMPARE(c.networks(), QVariantList());
+}
+
+void TestControllers::testWifiControllerAccessPointAddedRemoved() {
+  WifiController c;
+  const QString apPath = QStringLiteral("/org/freedesktop/NetworkManager/AccessPoint/42");
+  const QVariantMap apProps{
+      {QStringLiteral("Ssid"), QVariant(QByteArray("MyNet"))},
+      {QStringLiteral("Strength"), QVariant(70)},
+      {QStringLiteral("Flags"), QVariant(0x00000001)},
+  };
+  c.accessPointAddedForTest(apPath, apProps);
+  QCOMPARE(c.networks().size(), 1);
+  const QVariantMap ap = c.networks().first().toMap();
+  QCOMPARE(ap[QStringLiteral("ssid")].toString(), QStringLiteral("MyNet"));
+  QCOMPARE(ap[QStringLiteral("signalStrength")].toInt(), 70);
+  QVERIFY(ap[QStringLiteral("secured")].toBool());
+
+  // Remove it again -> list empties.
+  c.accessPointRemovedForTest(apPath);
+  QCOMPARE(c.networks(), QVariantList());
+}
+
+void TestControllers::testWifiControllerConnectIssuesAddAndConnect() {
+  WifiController c;
+  bool addAndConnectCalled = false;
+  QVariantMap capturedSettings;
+  c.setDbusCallableForTest(
+      [&addAndConnectCalled, &capturedSettings](
+          const QString &, const QString &objectPath, const QString &interface,
+          const QString &method, const QVariantList &args,
+          const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.freedesktop.NetworkManager.Settings") &&
+            method == QStringLiteral("AddAndConnectConnection")) {
+          addAndConnectCalled = true;
+          capturedSettings = args.value(0).toMap();
+          onFinished(QVariant(), QString());
+          return;
+        }
+        onFinished(QVariant(), QString());
+      });
+
+  c.connect(QStringLiteral("MyNet"), QStringLiteral("hunter2"));
+  QVERIFY2(addAndConnectCalled,
+           "connect() must call AddAndConnectConnection on Settings");
+  QVERIFY(!capturedSettings.isEmpty());
+  const QVariantMap conn = capturedSettings[QStringLiteral("connection")].toMap();
+  QCOMPARE(conn[QStringLiteral("type")].toString(), QStringLiteral("802-11-wireless"));
+  QCOMPARE(capturedSettings[QStringLiteral("802-11-wireless")].toMap()[QStringLiteral("ssid")].toByteArray(),
+           QByteArray("MyNet"));
+}
+
+void TestControllers::testWifiControllerConnectOpenNetworkNoSecurity() {
+  WifiController c;
+  QVariantMap capturedSettings;
+  c.setDbusCallableForTest(
+      [&capturedSettings](const QString &, const QString &, const QString &interface,
+                          const QString &method, const QVariantList &args,
+                          const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.freedesktop.NetworkManager.Settings") &&
+            method == QStringLiteral("AddAndConnectConnection")) {
+          capturedSettings = args.value(0).toMap();
+        }
+        onFinished(QVariant(), QString());
+      });
+  c.accessPointAddedForTest(QStringLiteral("/ap1"),
+                            {{QStringLiteral("Ssid"), QVariant(QByteArray("OpenNet"))},
+                             {QStringLiteral("Strength"), QVariant(90)},
+                             {QStringLiteral("Flags"), QVariant(0x00000000)}});
+  c.connect(QStringLiteral("OpenNet"), QString());
+  QVERIFY(!capturedSettings.isEmpty());
+  const QVariantMap wireless = capturedSettings[QStringLiteral("802-11-wireless")].toMap();
+  QVERIFY(!wireless.contains(QStringLiteral("security")));
+  QVERIFY(!capturedSettings.contains(QStringLiteral("802-11-wireless-security")));
+}
+
+void TestControllers::testWifiControllerDefaultTracksDisconnected() {
+  WifiController c;
+  QCOMPARE(c.connected(), false);
+  QCOMPARE(c.ssid(), QString());
+  QCOMPARE(c.signalStrength(), 0);
+}
+
+void TestControllers::testWifiControllerTracksActiveConnectionState() {
+  WifiController c;
+  const QString activeConnPath = QStringLiteral("/org/freedesktop/NetworkManager/ActiveConnection/3");
+  const QString apPath = QStringLiteral("/org/freedesktop/NetworkManager/AccessPoint/7");
+
+  c.setDbusCallableForTest(
+      [activeConnPath, apPath](const QString &, const QString &objectPath,
+                               const QString &interface, const QString &method,
+                               const QVariantList &args,
+                               const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.freedesktop.NetworkManager") &&
+            method == QStringLiteral("GetPrimaryConnection")) {
+          onFinished(QVariant::fromValue(QDBusObjectPath(activeConnPath)), QString());
+          return;
+        }
+        // Property reads go through org.freedesktop.DBus.Properties.Get; the
+        // target interface is args[0].
+        if (interface == QStringLiteral("org.freedesktop.DBus.Properties") &&
+            method == QStringLiteral("Get")) {
+          const QString targetInterface = args.value(0).toString();
+          const QString prop = args.value(1).toString();
+          if (targetInterface == QStringLiteral("org.freedesktop.NetworkManager.Connection.Active") &&
+              prop == QStringLiteral("SpecificObject")) {
+            onFinished(QVariant::fromValue(QDBusObjectPath(apPath)), QString());
+            return;
+          }
+          if (targetInterface == QStringLiteral("org.freedesktop.NetworkManager.AccessPoint")) {
+            if (prop == QStringLiteral("Ssid")) {
+              onFinished(QVariant(QByteArray("MyNet")), QString());
+              return;
+            }
+            if (prop == QStringLiteral("Strength")) {
+              onFinished(QVariant(88), QString());
+              return;
+            }
+          }
+        }
+        onFinished(QVariant(), QString());
+      });
+  c.refreshActiveConnection();
+  QCOMPARE(c.connected(), true);
+  QCOMPARE(c.ssid(), QStringLiteral("MyNet"));
+  QCOMPARE(c.signalStrength(), 88);
+}
+
+void TestControllers::testWifiControllerSurfacesConnectError() {
+  WifiController c;
+  const QString accessDenied = QStringLiteral("org.freedesktop.DBus.Error.AccessDenied");
+  c.setDbusCallableForTest(
+      [accessDenied](const QString &, const QString &, const QString &interface,
+                     const QString &method, const QVariantList &,
+                     const std::function<void(const QVariant &, const QString &)> &onFinished) {
+        if (interface == QStringLiteral("org.freedesktop.NetworkManager.Settings") &&
+            method == QStringLiteral("AddAndConnectConnection")) {
+          onFinished(QVariant(), accessDenied);
+          return;
+        }
+        onFinished(QVariant(), QString());
+      });
+  c.connect(QStringLiteral("MyNet"), QStringLiteral("hunter2"));
+  QVERIFY(!c.errorMessage().isEmpty());
+  QVERIFY(!c.connected());
 }
 
 void TestControllers::testBluetoothClientDefaults() {
