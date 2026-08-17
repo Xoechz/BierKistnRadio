@@ -212,6 +212,11 @@ void BluetoothClient::bluezPropertyChangedForTest(
 void BluetoothClient::setConnectedDeviceNameForTest(const QString &name) {
   m_devices.clear();
   m_connectedOrder.clear();
+  m_playerOwners.clear();
+  m_takeoverDevicePath.clear();
+  setTakeoverPending(false);
+  updateTakeoverIncoming();
+  resetAvrcp();
   if (!name.isEmpty()) {
     DeviceState d;
     d.path = QStringLiteral("/org/bluez/hci0/dev_TEST");
@@ -349,8 +354,11 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
 
   const bool nameChanged =
       (!device.alias.isEmpty() ? device.alias : device.name) != oldName;
+  const QString activeBefore = m_activeDevicePath;
   recalculate();
-  if (path == m_activeDevicePath && nameChanged) {
+  // If the active device just switched, setActiveDevice already emitted.
+  if (path == m_activeDevicePath && nameChanged &&
+      m_activeDevicePath == activeBefore) {
     emit connectedDeviceNameChanged();
   }
 }
@@ -358,6 +366,13 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
 void BluetoothClient::onDeviceRemoved(const QString &path) {
   m_devices.remove(path);
   m_connectedOrder.removeAll(path);
+  for (auto it = m_playerOwners.begin(); it != m_playerOwners.end();) {
+    if (it.value() == path) {
+      it = m_playerOwners.erase(it);
+    } else {
+      ++it;
+    }
+  }
   if (m_takeoverDevicePath == path) {
     m_takeoverDevicePath.clear();
   }

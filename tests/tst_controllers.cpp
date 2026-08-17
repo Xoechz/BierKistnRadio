@@ -31,6 +31,8 @@ private slots:
   void testBluetoothTracksConnectedDevices();
   void testBluetoothTakeoverDetection();
   void testBluetoothTakeoverExposesNames();
+  void testBluetoothTakeoverIncomingNameLiveUpdate();
+  void testBluetoothDeviceRemoveClearsPlayerState();
   void testBluetoothAdapterStateObserved();
   void testBluetoothEnsureDiscoverableCallsSet();
   void testBluetoothResolveTakeoverKeepDisconnectsNew();
@@ -511,6 +513,57 @@ void TestControllers::testBluetoothAdapterStateObserved() {
   QCOMPARE(c.adapterPairable(), true);
 }
 
+void TestControllers::testBluetoothTakeoverIncomingNameLiveUpdate() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  const QString dB = QStringLiteral("/org/bluez/hci0/dev_11_22_33_44_55_66");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  c.bluezObjectAddedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Name"), QStringLiteral("Galaxy")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  QCOMPARE(c.takeoverPending(), true);
+  QCOMPARE(c.takeoverIncomingName(), QStringLiteral("Galaxy"));
+
+  // Incoming device publishes its Alias while takeover is pending.
+  c.bluezPropertyChangedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                                {{QStringLiteral("Alias"), QStringLiteral("Bee")}});
+  QCOMPARE(c.takeoverIncomingName(), QStringLiteral("Bee"));
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("A"));
+}
+
+void TestControllers::testBluetoothDeviceRemoveClearsPlayerState() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), QVariant(true)}});
+  c.bluezObjectAddedForTest(dA + QStringLiteral("/player0"),
+                            QStringLiteral("org.bluez.MediaPlayer1"),
+                            {{QStringLiteral("Status"), QStringLiteral("playing")},
+                             {QStringLiteral("Track"),
+                              QVariant(QVariantMap{{QStringLiteral("Title"),
+                                                     QStringLiteral("Song")}})}});
+  QCOMPARE(c.statusPublished(), true);
+
+  // Drop the device (player object gone with it). AVRCP must go quiet and no
+  // stale player registration may survive the removal.
+  c.bluezObjectRemovedForTest(dA, QStringLiteral("org.bluez.MediaPlayer1"));
+  c.bluezObjectRemovedForTest(dA, QStringLiteral("org.bluez.Device1"));
+  QCOMPARE(c.statusPublished(), false);
+  QCOMPARE(c.trackPublished(), false);
+
+  // A fresh connection republishes cleanly; late props from the dead player
+  // must not re-assert AVRCP for the default state.
+  c.bluezPropertyChangedForTest(dA + QStringLiteral("/player0"),
+                                QStringLiteral("org.bluez.MediaPlayer1"),
+                                {{QStringLiteral("Status"), QStringLiteral("playing")}});
+  QCOMPARE(c.statusPublished(), false);
+  QCOMPARE(c.isBluetoothPlaying(), false);
+  QCOMPARE(c.connectedDeviceName(), QString());
+}
+
 void TestControllers::testBluetoothEnsureDiscoverableCallsSet() {
   BluetoothClient c;
   bool setCalled = false;
@@ -592,6 +645,7 @@ void TestControllers::testBluetoothResolveTakeoverSwitchDisconnectsOld() {
 
   c.resolveTakeover(BluetoothClient::SwitchToNew);
   QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(c.takeoverIncomingName(), QString());
   QCOMPARE(disconnected.size(), 1);
   QVERIFY(disconnected.contains(dA)); // the *old* device is kicked
   QCOMPARE(c.connectedDeviceName(), QStringLiteral("B"));
