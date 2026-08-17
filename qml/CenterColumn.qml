@@ -83,8 +83,8 @@ Rectangle {
         Image {
             id: albumArt
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 300
-            Layout.preferredHeight: 300
+            Layout.preferredWidth: 360
+            Layout.preferredHeight: 360
             Layout.topMargin: 24
             source: root.showSpotifyArt
                 ? PlaybackController.spotify.artUrl
