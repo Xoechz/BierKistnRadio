@@ -42,8 +42,55 @@ Rectangle {
         return "▶"
     }
 
+    // ---- Interpolated Spotify position -------------------------------------
+    // spotifyd only publishes `Position` on the 5 s poll (no PropertiesChanged
+    // for it), so the bare backend value would step every 5 s. Extrapolate
+    // smoothly between backend syncs using wall-clock, and re-anchor each time a
+    // real position (or play-state/track) change arrives.
+    property double spPosMs: 0
+    property double spAnchorMs: 0
+    property double spAnchorTime: Date.now()
+
+    property double backendSpPos: PlaybackController.spotify.position
+    onBackendSpPosChanged: root.reanchorSp()
+
+    property bool backendSpPlaying: PlaybackController.spotify.isSpotifyPlaying
+    onBackendSpPlayingChanged: root.reanchorSp()
+
+    function reanchorSp() {
+        root.spAnchorMs = PlaybackController.spotify.position
+        root.spAnchorTime = Date.now()
+        root.recomputeSp()
+    }
+
+    function recomputeSp() {
+        if (root.showSpotifyProgress && PlaybackController.spotify.isSpotifyPlaying) {
+            var est = root.spAnchorMs + (Date.now() - root.spAnchorTime)
+            var dur = PlaybackController.spotify.duration
+            if (dur > 0 && est > dur) {
+                est = dur
+            }
+            root.spPosMs = est
+        } else {
+            // Paused or not showing: surface the last true position.
+            root.spPosMs = PlaybackController.spotify.position
+        }
+    }
+
+    Timer {
+        id: spInterpolator
+        interval: 500
+        repeat: true
+        running: root.showSpotifyProgress
+                 && PlaybackController.spotify.isSpotifyPlaying
+                 && !scrubSlider.pressed
+        onTriggered: root.recomputeSp()
+    }
+
+    Component.onCompleted: root.reanchorSp()
+
     readonly property double currentMs:
-        root.showSpotifyProgress ? PlaybackController.spotify.position
+        root.showSpotifyProgress ? root.spPosMs
                                  : PlaybackController.bluetooth.position
 
     readonly property double totalMs:
@@ -117,8 +164,24 @@ Rectangle {
                 visible: root.showSpotifyProgress
                 from: 0
                 to: Math.max(1, PlaybackController.spotify.duration / 1000)
-                value: PlaybackController.spotify.position / 1000
-                onMoved: PlaybackController.seek(value * 1000)
+                value: root.spPosMs / 1000
+                // While pressed: follow the thumb visually/label-wise only, do
+                // not spam seeks. Commit ONE seek when the drag ends.
+                onPressedChanged:
+                    if (scrubSlider.pressed) {
+                        root.spAnchorMs = scrubSlider.value * 1000
+                        root.spAnchorTime = Date.now()
+                        root.spPosMs = scrubSlider.value * 1000
+                    } else {
+                        root.spAnchorMs = root.spPosMs
+                        root.spAnchorTime = Date.now()
+                        PlaybackController.seek(root.spPosMs)
+                    }
+                onMoved: {
+                    root.spPosMs = scrubSlider.value * 1000
+                    root.spAnchorMs = root.spPosMs
+                    root.spAnchorTime = Date.now()
+                }
             }
 
             ProgressBar {

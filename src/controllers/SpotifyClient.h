@@ -72,7 +72,7 @@ private:
   bool m_hasTrack = false;
   bool m_available = false;
   QString m_mprisService;
-  QString m_subscribedUnique;
+  QString m_subscribedName;
   bool m_daemonPresent = false;
   QDBusObjectPath m_trackId;
   QDBusServiceWatcher *m_watcher = nullptr;
@@ -84,12 +84,19 @@ private:
   void subscribeToMpris();
   void unsubscribeFromMpris();
   void fetchInitialMprisState();
-  void onMprisPropertiesChanged(const QString &interface,
-                                const QVariantMap &changed,
-                                const QStringList &invalidated);
   void updateFromMetadata(const QVariantMap &metadata);
   void updatePlaybackStatus(const QString &status);
   void setTrackPresence(bool present);
   void setAvailable(bool available);
   void setDaemonPresent(bool present);
+
+private slots:
+  // Slots referenced via QDBusConnection::connect(..., SLOT(...)). A slot needs
+  // to be registered in the Q_OBJECT metaobject for SLOT() to resolve — a plain
+  // private method makes QDBusConnection::connect() return false (it logged
+  // "Could not connect org.freedesktop.DBus.Properties to
+  // onMprisPropertiesChanged" for exactly that reason and never delivered).
+  void onMprisPropertiesChanged(const QString &interface,
+                                const QVariantMap &changed,
+                                const QStringList &invalidated);
 };

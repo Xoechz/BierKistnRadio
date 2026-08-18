@@ -103,3 +103,12 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 - [ ] **T25: Release date — MusicBrainz lookup.** For an active Track, use the title + first artist to query the MusicBrainz Recording API for the track's **first release date**. Query `GET /ws/2/recording/?query=recording:"<title>"+AND+artist:"<artist>"&fmt=json` (see the [MusicBrainz API docs](https://musicbrainz.org/doc/MusicBrainz_API) and the example `https://musicbrainz.org/ws/2/recording/?query=recording:%22Exodus%22%20AND%20artist:%22Brand%20of%20Sacrifice%22&fmt=json`). Parse the first hit's earliest `first-release-date` (derived from the releases' `date` fields), respecting MB's 1 req/s rate limit (`User-Agent` + `polite pool` contract) and caching per track. Surface the resolved date as a `Q_PROPERTY releaseDate` on `PlaybackController` (or a dedicated non-singleton music-metadata client reached through the facade, mirroring the `SpotifyClient`/`BluetoothClient` pattern) so QML can show it in the Now-Playing metadata block.
   - **Failure/edge handling (must never crash or block):** API unreachable → show **"No Connection to Musicbrainz for release dates"**; track not found or ambiguous (0 or >1 hits) → show **"Release Date unknown"**. Any valid single hit → show its first release date. Keep the query async (`QNetworkAccessManager`, don't block the UI thread), and fire it whenever the current artist/title changes (or on `SpotifyWaiting`. Only trigger when a Track is actually loaded).
   - Learn: `QNetworkAccessManager`/`QNetworkReply`, MusicBrainz JSON `fmt=json` schema, polite-pool `User-Agent` conventions + `~1 req/s` rate limiting, `QUrlQuery` encoding, an LRU `release-date` cache keyed by `artist|title`, mapping the "unknown"/"no connection" states to distinct user-facing strings.
+
+## Unspecified
+
+- [ ] Fix wifi list
+- [ ] Decide how to finalize spotifyd bluetooth split(shutting of the service? allowing overlapping audio and switch just switches through displays(no fixed states then?))
+  - Then we would be just a mpris player => fine i guess?
+  - Maybe we simplify to play whatever and show the first mpris(bt data we get?)
+  - Check why my car shows bt metadata, but the pi does not
+- [ ] Pin protected bluetooth
