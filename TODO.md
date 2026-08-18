@@ -111,8 +111,14 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
   - Then we would be just a mpris player => fine i guess?
   - Maybe we simplify to play whatever and show the first mpris(bt data we get?)
   - Check why my car shows bt metadata, but the pi does not
+  - Erwin => close inactive services
 - [ ] Pin protected bluetooth
 - [ ] Fix icons of center
 - [ ] Fix title not wrapping words
 - [ ] Bluetooth again not detected
 - [ ] ArtCache
+- [ ] Swipe to skil. Coverclick to pause/play
+- [ ] playlist
+- [ ] mute buton
+- [ ] new sd card image with default passwords
+- [ ] maybe portrait mode

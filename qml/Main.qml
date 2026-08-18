@@ -17,6 +17,11 @@ ApplicationWindow {
     Material.theme: Theme.materialTheme
     Material.accent: Theme.materialAccent
 
+    Shortcut {
+        sequence: "Alt+F4"
+        onActivated: root.close()
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
