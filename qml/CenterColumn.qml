@@ -76,8 +76,8 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.defaultSpacing
-        spacing: Theme.defaultSpacing
+        anchors.margins: Theme.smallSpacing
+        spacing: Theme.smallSpacing
 
         // ---------- Album art (always visible) ----------
         Image {
@@ -85,7 +85,7 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 360
             Layout.preferredHeight: 360
-            Layout.topMargin: 24
+            Layout.topMargin: 12
             source: root.showSpotifyArt
                 ? PlaybackController.spotify.artUrl
                 : "qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg"
@@ -100,7 +100,7 @@ Rectangle {
             id: progressRow
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.touchTarget
-            spacing: Theme.defaultSpacing
+            spacing: Theme.smallSpacing
             visible: root.showSpotifyProgress || root.showBluetoothBar
 
             Label {

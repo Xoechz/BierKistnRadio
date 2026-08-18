@@ -20,6 +20,7 @@ QtObject {
     readonly property int statusBarHeight: 48
     readonly property int cornerRadius: 12
     readonly property int defaultSpacing: 16
+    readonly property int smallSpacing: 8
 
     readonly property int fontSizeSmall: 14
     readonly property int fontSizeMedium: 18

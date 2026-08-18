@@ -14,7 +14,7 @@ Rectangle {
         if (name !== "") {
             // Visible regardless of Source state (ADR 0008): you can always see
             // that a phone is connected, plus when it is silenced.
-            return "Connected to " + name + (bt.muted ? " · Muted" : "")
+            return name + (bt.muted ? " · Muted" : "")
         }
         switch (PlaybackController.playbackState) {
         case PlaybackController.BluetoothWaiting:
@@ -26,7 +26,7 @@ Rectangle {
 
     readonly property string wifiStatusText: {
         if (WifiController.connected) {
-            return "Connected to " + WifiController.ssid
+            return WifiController.ssid
         }
         return "Not connected"
     }
