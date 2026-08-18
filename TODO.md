@@ -39,7 +39,7 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 
 ## Phase 2: QML views — three-column layout (mockup-driven)
 
-- [x] **T9: Main.qml — three-column skeleton.** Rewrite `Main.qml` to the three-column layout: `StatusBar` on top, then a `RowLayout` with `LeftColumn` (~230px), `CenterColumn` (fill), `RightSidebar` (~230px). Remove the bottom nav bar, the `Loader`, and the `Settings.qml` reference. Remove the `appRouter` QtObject. The three columns are always visible — no view switching. Keep `Theme` singleton integration. Window remains `1024×600`, frameless fullscreen.
+- [x] **T9: Main.qml — three-column skeleton.** Rewrite `Main.qml` to the three-column layout: `StatusBar` on top, then a `RowLayout` with `LeftColumn` (~250px), `CenterColumn` (fill), `RightSidebar` (~250px). Remove the bottom nav bar, the `Loader`, and the `Settings.qml` reference. Remove the `appRouter` QtObject. The three columns are always visible — no view switching. Keep `Theme` singleton integration. Window remains `1024×600`, frameless fullscreen.
   - Learn: `RowLayout`, `Layout.fillWidth`, `Layout.preferredWidth`, removing a `Loader`-based navigation pattern.
 
 - [x] **T10: StatusBar — clock + source toggle + reboot/shutdown.** Rewrite `StatusBar.qml`: clock (left-aligned), source toggle center ("Spotify ○══○ Bluetooth"), reboot + shutdown icon-only buttons (right). Remove the Wi-Fi emoji and Bluetooth emoji — status is now in the right sidebar. Source toggle: tap calls `switchToSpotify()`/`switchToBluetooth()`, shows "…" while switching, 3-second timeout resets stuck "…" if no `playbackState` change arrives. Reboot/shutdown buttons open the `ConfirmDialog`.

@@ -31,7 +31,7 @@ ApplicationWindow {
             spacing: 0
 
             LeftColumn {
-                Layout.preferredWidth: 230
+                Layout.preferredWidth: 250
                 Layout.fillHeight: true
             }
 
@@ -41,7 +41,7 @@ ApplicationWindow {
             }
 
             RightSidebar {
-                Layout.preferredWidth: 230
+                Layout.preferredWidth: 250
                 Layout.fillHeight: true
             }
         }

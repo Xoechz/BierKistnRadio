@@ -72,7 +72,7 @@ Three-column layout driven by `PlaybackController.playbackState` — a five-stat
 └──────────┴──────────────────────────┴──────────────┘
 ```
 
-#### Left Column (metadata, ~230px wide)
+#### Left Column (metadata, ~250px wide)
 
 Content depends on playback state:
 
@@ -97,9 +97,10 @@ Content depends on playback state:
   - `BluetoothActive` + `statusPublished`: Play/Pause + Next + Previous buttons (best-effort AVRCP). Play/Pause glyph reflects `isBluetoothPlaying`.
   - All other states: no transport.
 
-#### Right Sidebar (~230px wide, always visible)
+#### Right Sidebar (~250px wide, always visible)
 
 Top-to-bottom, source-independent:
+
 1. **Volume / Brightness sliders** — side by side at the top, **Volume on the left, Brightness on the right**, both vertical. Volume: 0–150%, label shows current %, tick mark at 100%. Brightness: 0–100%, label shows current %.
 2. **Dark mode toggle** (small switch, sun/moon icon)
 3. **Bluetooth status** — two-line block: "Bluetooth" label + status text (`BluetoothWaiting`: "Discoverable", `BluetoothActive`: "Connected to \<name\>", unavailable: "Not available")
@@ -109,6 +110,7 @@ Top-to-bottom, source-independent:
 ### C. Takeover Dialog (modal overlay)
 
 When a second phone connects while one is already playing (`PlaybackController.bluetooth.takeoverPending`):
+
 - Centered modal overlay (~300×200px).
 - Title: "Takeover"
 - Body: "Keep playing on \<current device\>, or switch to \<new device\>?"
@@ -119,6 +121,7 @@ When a second phone connects while one is already playing (`PlaybackController.b
 ### D. Wi-Fi Dialog (popup overlay)
 
 Tapping "Wifi Settings" in the right sidebar opens a dialog:
+
 - Auto-scans on open (calls `WifiController.scan()`). Manual refresh button at top.
 - Scrollable SSID list from `WifiController.networks`. Each row: SSID name + signal strength bars (▂▄▆█ mapping: 0–25% → ▂, 25–50% → ▄, 50–75% → ▆, 75–100% → █). Connected SSID gets a checkmark.
 - Tap an SSID → password `TextField` appears with OSK (`QtQuick.VirtualKeyboard` auto-pops on focus).
@@ -128,6 +131,7 @@ Tapping "Wifi Settings" in the right sidebar opens a dialog:
 ### E. Reboot / Shutdown Confirmation Dialog
 
 Tapping reboot or shutdown in the status bar opens a centered modal:
+
 - Title: "Reboot Radio?" or "Shutdown Radio?"
 - Two large touch buttons: "Cancel" (neutral) / "Confirm" (red, `Theme.errorColor`)
 - 10-second auto-dismiss (cancels) to prevent accidental activation.

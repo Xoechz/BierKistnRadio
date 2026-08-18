@@ -31,7 +31,7 @@ The user-selectable playback input: Spotify or Bluetooth sink. Toggled from the 
 _Avoid_: input, mode, Source Selection (obsolete — the view was removed).
 
 **Right Sidebar**:
-The ~230px panel on the right side of the Now-Playing view. Always visible. Contains: volume slider (left) and brightness slider (right) side by side, dark mode toggle, Bluetooth status text, Wi-Fi status text, and a "Wifi Settings" button that opens the Wi-Fi Dialog. Source-independent — shows the same content regardless of playback state. The Bluetooth status shows "Connected to \<name>" in **any** Source state and appends "· Muted" while that stream is silenced by the Mute Invariant.
+The ~250px panel on the right side of the Now-Playing view. Always visible. Contains: volume slider (left) and brightness slider (right) side by side, dark mode toggle, Bluetooth status text, Wi-Fi status text, and a "Wifi Settings" button that opens the Wi-Fi Dialog. Source-independent — shows the same content regardless of playback state. The Bluetooth status shows "Connected to \<name>" in **any** Source state and appends "· Muted" while that stream is silenced by the Mute Invariant.
 
 **Left Column**:
 The ~200px panel on the left side of the Now-Playing view. Shows metadata depending on playback state: track title, artist, album (SpotifyActive); error/hint text (SpotifyUnavailable/SpotifyWaiting/BluetoothWaiting); or device-connected metadata (BluetoothActive).
