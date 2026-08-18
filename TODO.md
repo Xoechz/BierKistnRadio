@@ -112,3 +112,7 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
   - Maybe we simplify to play whatever and show the first mpris(bt data we get?)
   - Check why my car shows bt metadata, but the pi does not
 - [ ] Pin protected bluetooth
+- [ ] Fix icons of center
+- [ ] Fix title not wrapping words
+- [ ] Bluetooth again not detected
+- [ ] ArtCache
