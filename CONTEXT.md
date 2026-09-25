@@ -20,7 +20,7 @@ _Avoid_: fullscreen mode, kiosk app (the kiosk is the device's runtime, not a se
 The persistent top strip showing the clock (left), the Source toggle (center), and Reboot/Shutdown icons (right). Wi-Fi and Bluetooth status are shown in the Right Sidebar, not the Status Bar.
 
 **Now-Playing**:
-The default and only view. A three-column layout: Left Column (metadata), Center Column (album art + progress + transport), Right Sidebar (sliders + statuses + Wi-Fi settings). Has a Bluetooth Mode variant for Bluetooth-sink playback.
+The default and only view. A three-column layout: Left Column (metadata), Center Column (album art + progress + transport), Right Sidebar (volume + statuses + Wi-Fi settings). Has a Bluetooth Mode variant for Bluetooth-sink playback.
 
 **Bluetooth Mode**:
 The Now-Playing variant shown when the speaker is acting as a Bluetooth sink. No scrubber (a passive non-interactive progress bar may show `Position` while the phone publishes it and `duration > 0`). Best-effort AVRCP transport (Play/Pause/Next/Previous) is shown in the Center Column **only while the phone publishes `Status`**; metadata (title/artist/album) **only while `Track` is published**, with title suffixed "via \<device name\>"; when `Track` is not published → "Controlled by \<Paired Device\>" as title, "No metadata available" as subtitle. Paired Device still owns playback initiation; the speaker only silences outgoing audio during a Spotify state via the Mute Invariant (see [ADR 0008](./adr/0008-two-sided-audio-exclusivity.md)). Only **one active phone** is audible; a second connect is arbitrated by Takeover, not added to the mix. Bluetooth Mode is **opt-in** — a phone connecting via BT does NOT automatically enter Bluetooth Mode. The user must explicitly tap the Source toggle to switch. Has two sub-states: `BluetoothWaiting` (no device connected yet, show "Discoverable — connect your phone") and `BluetoothActive` (device connected, show metadata or "Controlled by \<Paired Device\>").
@@ -31,7 +31,7 @@ The user-selectable playback input: Spotify or Bluetooth sink. Toggled from the 
 _Avoid_: input, mode, Source Selection (obsolete — the view was removed).
 
 **Right Sidebar**:
-The ~250px panel on the right side of the Now-Playing view. Always visible. Contains: volume slider (left) and brightness slider (right) side by side, dark mode toggle, Bluetooth status text, Wi-Fi status text, and a "Wifi Settings" button that opens the Wi-Fi Dialog. Source-independent — shows the same content regardless of playback state. The Bluetooth status shows "Connected to \<name>" in **any** Source state and appends "· Muted" while that stream is silenced by the Mute Invariant.
+The ~250px panel on the right side of the Now-Playing view. Always visible. Contains: a volume slider, dark mode toggle, Bluetooth status text, Wi-Fi status text, and a "Wifi Settings" button that opens the Wi-Fi Dialog. Source-independent — shows the same content regardless of playback state. The Bluetooth status shows "Connected to \<name>" in **any** Source state and appends "· Muted" while that stream is silenced by the Mute Invariant.
 
 **Left Column**:
 The ~200px panel on the left side of the Now-Playing view. Shows metadata depending on playback state: track title, artist, album (SpotifyActive); error/hint text (SpotifyUnavailable/SpotifyWaiting/BluetoothWaiting); or device-connected metadata (BluetoothActive).
@@ -49,7 +49,7 @@ A centered modal popup shown when a second Bluetooth device connects while one i
 A centered modal popup for reboot/shutdown confirmation. Two buttons: Cancel and Confirm (red). 10-second auto-dismiss.
 
 **Settings**:
-The previous full-screen view for on-device management. **Replaced by the Right Sidebar** (sliders, statuses) and the Wi-Fi Dialog (SSID list + password). No longer a separate view.
+The previous full-screen view for on-device management. **Replaced by the Right Sidebar** (volume, statuses) and the Wi-Fi Dialog (SSID list + password). No longer a separate view.
 
 ### Playback
 

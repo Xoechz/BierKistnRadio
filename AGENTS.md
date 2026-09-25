@@ -63,7 +63,6 @@ Three-column layout driven by `PlaybackController.playbackState` — a five-stat
 │          │                          │  Right       │
 │  Left    │  Center                  │  Sidebar     │
 │  Column  │  Column                  │              │
-│          │                          │  brightness  │
 │  Track   │  Album Art (400×400)     │  volume      │
 │  Artist  │                          │  dark mode   │
 │  Album   │  Progress / Scrubber     │  BT status   │
@@ -101,7 +100,7 @@ Content depends on playback state:
 
 Top-to-bottom, source-independent:
 
-1. **Volume / Brightness sliders** — side by side at the top, **Volume on the left, Brightness on the right**, both vertical. Volume: 0–150%, label shows current %, tick mark at 100%. Brightness: 0–100%, label shows current %.
+1. **Volume slider** — vertical at the top in its existing left position. Volume: 0–150%, label shows current %, tick mark at 100%. Sidebar layout redesign is pending.
 2. **Dark mode toggle** (small switch, sun/moon icon)
 3. **Bluetooth status** — two-line block: "Bluetooth" label + status text (`BluetoothWaiting`: "Discoverable", `BluetoothActive`: "Connected to \<name\>", unavailable: "Not available")
 4. **Wi-Fi status** — two-line block: "Wi-Fi" label + status text ("Connected to \<SSID\>" or "Not connected")
@@ -171,7 +170,7 @@ Only the **shown Source** is audible; the inactive Source is **muted and paused*
 │   ├── Main.qml             # root window, frameless fullscreen, three-column layout
 │   ├── Theme.qml            # singleton: colors, sizes, fonts, Material theme
 │   ├── StatusBar.qml        # persistent top bar (clock, source toggle, reboot/shutdown)
-│   ├── RightSidebar.qml     # brightness, volume, dark mode, BT/Wi-Fi status, Wifi Settings btn
+│   ├── RightSidebar.qml     # volume, dark mode, BT/Wi-Fi status, Wifi Settings btn
 │   ├── LeftColumn.qml       # metadata display (state-dependent: track/artist/album/error/hint)
 │   ├── CenterColumn.qml     # album art + scrubber/progress + transport
 │   ├── WifiDialog.qml       # popup: SSID list, signal bars, password OSK, connect

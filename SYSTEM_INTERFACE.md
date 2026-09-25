@@ -159,15 +159,9 @@ These affect `QStandardPaths` locations (cache, config, data). The system repo s
 
 ---
 
-## 9. Brightness control (app-owned via `ddcutil`)
+## 9. Display brightness
 
-The app owns screen brightness: the `BrightnessController` (TODO T26, [ADR 0007](./docs/adr/0007-brightness-controller-ddcutil.md)) shells out to `ddcutil --display N getvcp 10` / `setvcp 10 <p>` directly. The system repo's only obligations are:
-
-- `ddcutil` on the kiosk user's `PATH`,
-- `/dev/i2c-*` access for the kiosk user (udev `i2c` group membership), and
-- (one-time sanity) `ddcutil detect` confirms the panel answers DDC/CI — if it does not, the app shows its "brightness unavailable" state by design and the panel is simply not dimmable.
-
-No sysfs backlight, no D-Bus service, no polkit action (nothing over D-Bus here).
+The app has no brightness control; the I²C/DDC proposal was abandoned (see [ADR 0007](./docs/adr/0007-brightness-controller-ddcutil.md)). The system repo has no brightness-related dependency, device-access, or service obligation for this app. The in-app dark-mode toggle remains independent of display brightness.
 
 ---
 
@@ -243,14 +237,7 @@ The current `security.polkit.extraConfig` rule grants **only** `org.freedesktop.
 
 This may not bite in practice because BlueZ's net-effect is often gated by the caller being the active session user and a member of the `bluetooth` group (the kiosk user holds the active seat under cage and is in `extraGroups.bluetooth`), rather than by polkit. **Action:** verify on-device whether `Properties.Set` for `Adapter1.Discoverable`, `Device1.Disconnect`, and `MediaPlayer1.Play/Pause/Next/Previous` succeed for the `kistn` user; if policy-rejected, investigate the actual BlueZ D-Bus policy/authorization mechanism before granting access. A `Properties.Set` call uses the standard D-Bus interface, so a polkit rule matching only an `org.bluez.*` action name is not by itself proof of authorization.
 
-### 14.2 Brightness control (app-owned, §9 / ADR 0007)
-
-Resolved by [ADR 0007](./docs/adr/0007-brightness-controller-ddcutil.md): the app shells out to `ddcutil` (DDC/CI over I2C). The Pi's 7" panel is driven over **HDMI** (GPU output) and exposes no conventional `backlight` sysfs node — DDC/CI via `ddcutil` is the intended path (a software gamma ramp would only fake perceived brightness; there is no Wayland brightness protocol).
-
-- **To provide**: `ddcutil` on the kiosk `PATH` and kiosk-user access to `/dev/i2c-*` (udev `i2c` group).
-- **To verify on first boot**: `ddcutil detect` actually sees the HDMI panel and reports feature `10` (Brightness). If the panel has no DDC/CI, the app reports "brightness unavailable" and the panel is not dimmable — a hardware fact, not an app bug.
-
-### 14.3 Room-note: `Powered` and seat-monitoring
+### 14.2 Room-note: `Powered` and seat-monitoring
 
 - `Powered = true` is not set explicitly, but `AutoEnable = true` powers the adapter at boot — treated as satisfied, no action needed.
 - `monitor.bluez.seat-monitoring` is unset (default). The logind active-session note in §3 is a *conditional* ("if seat-monitoring interferes") — only address if Bluetooth nodes fail to appear in practice.

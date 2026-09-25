@@ -36,7 +36,7 @@ Rectangle {
         anchors.margins: Theme.defaultSpacing
         spacing: Theme.defaultSpacing
 
-        // ---------- Volume (left) | Brightness (right) ----------
+        // ---------- Volume ----------
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 250
@@ -84,36 +84,6 @@ Rectangle {
                         y: (volumeSlider.height - volumeSlider.handle.height) *
                            (1 - 100 / 150) + volumeSlider.handle.height / 2
                     }
-                }
-            }
-
-            ColumnLayout {
-                Layout.preferredWidth: Theme.touchTarget
-                spacing: 2
-                Layout.preferredHeight: 250
-
-                Label {
-                    text: "☀"
-                    font.pixelSize: Theme.fontSizeMedium
-                    color: Theme.textColor
-                    Layout.alignment: Qt.AlignHCenter
-                }
-                Label {
-                    text: brightnessSlider.value + "%"
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.bold: true
-                    color: Theme.textColor
-                    Layout.alignment: Qt.AlignHCenter
-                }
-                Slider {
-                    id: brightnessSlider
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: Theme.touchTarget
-                Layout.preferredHeight: 250
-                    orientation: Qt.Vertical
-                    from: 0
-                    to: 100
-                    value: 70
                 }
             }
         }
