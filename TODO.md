@@ -83,8 +83,8 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 
 ## Phase 3: Polish + deployment
 
-- [ ] **T21: D-Bus error handling.** Every controller must catch D-Bus errors and expose a `Q_PROPERTY` error state (e.g. `permissionDenied`, `serviceUnavailable`). QML shows a "Permission denied — check system config" or "spotifyd not running" banner (the `SpotifyUnavailable` state in `PlaybackController` is the first instance of this). Never silent failure.
-  - Learn: `QDBusError`, `QDBusReply<T>::isValid()`, error propagation to QML, `Q_ENUM` error states.
+- [ ] **T21: Controller error reporting.** Check asynchronous D-Bus replies and service calls in every controller; expose actionable errors to QML instead of failing silently. Distinguish permission denied, service unavailable, operation failed, and timeout. Report an error when a **requested** source fails to start or stop, but do not report spotifyd's intentional shutdown in Bluetooth mode—or the absence of MPRIS before a phone selects Spotify—as a fault. Keep the requested source selected after a failed transition; let T31 present its error and Retry action. Surface Wi-Fi and Bluetooth operation errors in their relevant views. Clear an error when its operation succeeds or observed state recovers, without repeatedly retrying a failed command.
+  - Learn: `QDBusError`, asynchronous reply checking, controller error properties/signals, distinguishing expected absence from failed operations.
 
 - [ ] **T22: Controller tests — real coverage.** Expand `tst_controllers.cpp` to test property changes after method calls, signal emissions (`QSignalSpy`), clamping edges, and error states. For D-Bus integration tests: start a private `dbus-daemon --session`, register mock spotifyd/MPRIS2/NM/BlueZ services, connect controllers to it.
   - Learn: `QSignalSpy`, `QVERIFY(signalSpy.count() == 1)`, `dbus-daemon --session --print-address`, `QDBusConnection::connectToBus()`.
@@ -92,7 +92,7 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 - [ ] **T23: Cross-build for the Pi.** Run `scripts/nix-build-pi.sh`. Fix any aarch64-specific issues (e.g. missing cross-compiled Qt plugins). Verify the binary runs on the Pi under cage.
   - Learn: Nix cross-compilation, `pkgsCross.aarch64-multiplatform`, Qt platform plugins for Wayland on aarch64.
 
-- [ ] **T24: System repo handoff.** Create the separate NixOS system repo that inputs this flake, runs cage, configures spotifyd (with `use_mpris = true`) + NetworkManager + BlueZ + PipeWire + polkit/soteria, and launches `bierkistnRadio` as the kiosk app. This is where the polkit rule granting the kiosk user D-Bus actions lives. See [SYSTEM_INTERFACE.md](./SYSTEM_INTERFACE.md) for the full contract.
+- [ ] **T24: System repo integration handoff.** The separate NixOS system repo already exists at `~/NyxOS` and inputs this flake. Verify its cage, spotifyd (`use_mpris = true`), NetworkManager, BlueZ, PipeWire, and kiosk-user authorization against the running UI on the Pi; resolve outstanding gaps with the separate system-repo agent through [SYSTEM_INTERFACE.md](./SYSTEM_INTERFACE.md). The new source-lifecycle and pairing changes are scoped separately in T29 and T32.
   - Learn: NixOS modules, `services.cage`, `services.spotifyd` (or systemd user service), `security.polkit.extraConfig`, `security.soteria.enable`, D-Bus session bus setup for kiosk user.
 
 - [ ] **T26: Screen brightness controller.** Implement [ADR 0007](./docs/adr/0007-brightness-controller-ddcutil.md): new `BrightnessController` QML singleton that shells out to `ddcutil --display N getvcp 10` / `setvcp 10 <p>` via an injectable `CommandRunner` seam (mirroring `VolumeController`), driving the RightSidebar brightness slider. `N` defaults to `1` (env `BLK_BRIGHTNESS_DISPLAY` overloads). Percent-normalized scale (1–100, always; clamp 0→1, 100+→100; `% = round(value/max·100)` on read, `round(pct/100·max)` on write). Reads/Writes are per-call **3s QProcess-watchdog-guarded**, with a **write-gen counter** (no read-back race); probe at startup + **5 s poll**; on consecutive read failures stop the poll and retry on backoff 5 s→10 s→30 s (success resets), setting `available=false` and keeping the last-good value. Writes happen **only** from the QML `onMoved`, clamped [1,100], **never at boot**. Write failure reverts to last-good + `errorMessage` (never a lying slider). **No persistence** — default `70` until the first successful read. QML: slope binds `enabled: BrightnessController.available` + inline "brightness unavailable" hint. Extend `tst_controllers.cpp` (parse/clamps/write-gen/watchdog/backoff). Note: SYSTEM_INTERFACE.md §9/§14.2 flipped from "system repo owns a brightness interface" to "app shells ddcutil; system repo provides `ddcutil` + kiosk-user i2c access (udev `i2c` group) + a `ddcutil detect` sanity check".
@@ -104,21 +104,47 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
   - **Failure/edge handling (must never crash or block):** API unreachable → show **"No Connection to Musicbrainz for release dates"**; track not found or ambiguous (0 or >1 hits) → show **"Release Date unknown"**. Any valid single hit → show its first release date. Keep the query async (`QNetworkAccessManager`, don't block the UI thread), and fire it whenever the current artist/title changes (or on `SpotifyWaiting`. Only trigger when a Track is actually loaded).
   - Learn: `QNetworkAccessManager`/`QNetworkReply`, MusicBrainz JSON `fmt=json` schema, polite-pool `User-Agent` conventions + `~1 req/s` rate limiting, `QUrlQuery` encoding, an LRU `release-date` cache keyed by `artist|title`, mapping the "unknown"/"no connection" states to distinct user-facing strings.
 
-## Unspecified
+## Phase 5: Feedback — connectivity and exclusive sources
 
-- [ ] Fix wifi list
-- [ ] Decide how to finalize spotifyd bluetooth split(shutting of the service? allowing overlapping audio and switch just switches through displays(no fixed states then?))
-  - Then we would be just a mpris player => fine i guess?
-  - Maybe we simplify to play whatever and show the first mpris(bt data we get?)
-  - Check why my car shows bt metadata, but the pi does not
-  - Erwin => close inactive services
-- [ ] Pin protected bluetooth
-- [ ] Fix icons of center
-- [ ] Fix title not wrapping words
-- [ ] Bluetooth again not detected
-- [ ] ArtCache
-- [ ] Swipe to skil. Coverclick to pause/play
-- [ ] playlist
-- [ ] mute buton
-- [ ] new sd card image with default passwords
-- [ ] maybe portrait mode
+- [ ] **T27: Repair Wi-Fi discovery and connection.** Diagnose the Pi's NetworkManager system-bus calls: the Wi-Fi list is empty and selecting a network cannot connect. Load already-known access points as well as newly added ones, update the list when a scan completes, and avoid duplicate signal subscriptions. Use the actual NetworkManager activation method/path and its required D-Bus argument types; track the selected network's activation result rather than treating a successful method reply as a connection. Surface scan, connection, and permission errors in `WifiDialog`. Verify that SSIDs appear and that a selected secured network connects on the Pi; add D-Bus-boundary tests so mocks cannot accidentally validate an invalid method.
+  - Learn: NetworkManager `GetAllAccessPoints`/`LastScan`, `AddAndActivateConnection`, Qt D-Bus marshalling, activation state.
+
+- [ ] **T28: Repair Bluetooth detection and investigate missing AVRCP metadata.** On the Pi, check BlueZ's device and remote-player objects while playing Spotify from a phone (the same phone publishes title/progress/duration to a car). Fix `BluetoothClient`'s `org.freedesktop.DBus.Properties.PropertiesChanged` subscriptions, initial `GetManagedObjects` decoding, late-player/active-device re-query, and discoverability property setter; test real object paths and signals rather than only injected state. Verify connection detection and, where the phone publishes them, title, artist, duration, position, and status. If metadata is absent after the D-Bus fixes, record whether BlueZ exposes a remote `MediaPlayer1` and which properties it publishes; retain the existing best-effort UI fallback.
+  - Learn: BlueZ ObjectManager and AVRCP, D-Bus properties interface, distinguishing A2DP audio from remote-player metadata.
+
+- [ ] **T29: System-repo handoff — source lifecycle (prerequisite for T30).** Have the separate `~/NyxOS` agent implement the planned contract in [SYSTEM_INTERFACE.md §15](./SYSTEM_INTERFACE.md#15-planned-system-repo-handoff-feedback). Boot with spotifyd running and the Bluetooth radio powered off; permit the kiosk app to start/stop its user's spotifyd service and power the BlueZ adapter on/off. Keep BlueZ, PipeWire, WirePlumber, and NetworkManager available, prevent spotifyd's service policy from undoing an intentional stop, and preserve the shared user session bus. Verify the Pi can make Spotify Connect available in Spotify mode, Bluetooth A2DP available in Bluetooth mode, and neither source audible while inactive. This work belongs in the system repo, not this application's flake.
+  - Learn: systemd user-service lifecycle, BlueZ `Adapter1.Powered`, service readiness and cross-repo interface contracts.
+
+- [ ] **T30: PlaybackController — exclusive source transitions (depends on T29).** Replace the inadequate mute/pause-only exclusivity mechanism with controlled lifecycle: Spotify → stop spotifyd, confirm it is down, then power on Bluetooth; Bluetooth → power off the adapter (disconnecting phones), confirm it is off, then start spotifyd. Boot in Spotify mode. A powered Bluetooth adapter with the A2DP sink ready counts as Bluetooth-ready; a running spotifyd user service counts as Spotify-ready even before MPRIS appears or a phone selects it. Keep source selection explicit and do not auto-connect phones or auto-play. Bound the entire transition (shutdown and startup) to **10 s**; on failure stay on the requested source with a visible error, allow a manual retry, and continue observing readiness for later recovery without repeatedly launching the failed service. Test transition order, timeout, failure, and late recovery. Update the playback ADR/contract when this supersedes ADR 0008's mute invariant.
+  - Learn: asynchronous service/adapter state observation, failure recovery, two-sided audio exclusivity without overlapping services.
+
+- [ ] **T31: Source-transition loading UI (depends on T30).** While the outgoing source shuts down and the requested source starts, cover the touch UI with a translucent gray modal overlay and centered loading indicator. Remove it when ready or after the 10-second timeout; show the source-specific startup error and Retry action without automatically switching back. In Spotify mode without a phone, show the existing waiting hint rather than loading indefinitely. Verify UI behavior on slow startup, failure, and later recovery.
+  - Learn: QML overlays, asynchronous state binding and bounded loading states.
+
+- [ ] **T32: System-repo handoff — protected pairing (prerequisite for T33).** Have the separate `~/NyxOS` agent replace the `NoInputNoOutput` auto-accept pairing agent with the planned app-owned BlueZ `Agent1` contract in [SYSTEM_INTERFACE.md §15](./SYSTEM_INTERFACE.md#15-planned-system-repo-handoff-feedback). Ensure the kiosk user can register the required confirmation-capable agent, there is no competing auto-accept agent, and previously paired phones can reconnect without a new confirmation while Bluetooth mode is active.
+  - Learn: BlueZ AgentManager/Agent1, system-bus policy, pairing-agent ownership.
+
+- [ ] **T33: Bluetooth pairing confirmation UI (depends on T32).** Register the app's BlueZ pairing agent while Bluetooth is available. For new pairings, display BlueZ's changing six-digit passkey (zero-padded) and the requesting device, and require a matching-code confirmation on the touchscreen. Reject on explicit rejection, cancellation, app exit, or **30 s** without a response; never silently accept new devices. Do not prompt for already-paired devices. Exercise accept/reject/timeout and late or duplicate requests with a mock BlueZ agent call and verify with a real phone on the Pi.
+  - Learn: BlueZ `RequestConfirmation`/`DisplayPasskey`, asynchronous D-Bus replies and pairing-dialog lifecycle.
+
+## Phase 6: Feedback — touch and artwork polish
+
+- [ ] **T34: Center transport icons.** Replace the font-dependent Previous, Play/Pause, and Next glyphs in `CenterColumn.qml` with consistently centered icons for both themes and keep the existing large touch targets. Verify alignment on the 1024×600 panel.
+  - Learn: QML icon resources, scalable alignment in Qt Quick Controls.
+
+- [ ] **T35: Implement ArtCache.** Replace the `cacheArt()` passthrough with asynchronous download and reuse of Spotify artwork under `QStandardPaths::CacheLocation/art`; integrate the returned local artwork with `CenterColumn` without displaying stale art after a track change. Bound disk usage to **100 MB** by pruning oldest cached covers. On download/cache failure, use the existing fallback artwork; retain `clearCache()` and test cache reuse, pruning, and failure behavior.
+  - Learn: `QNetworkAccessManager`, atomic cache writes, asynchronous QML image updates, bounded disk caches.
+
+- [ ] **T36: Cover gestures.** On the album-art area, swipe left for Next, swipe right for Previous, and tap for Play/Pause. Route through `PlaybackController` so Spotify and Bluetooth use the same source-specific availability rules as the existing buttons; distinguish taps from swipes to avoid accidental double actions. Keep the transport buttons usable.
+  - Learn: Qt Quick pointer/drag handlers, gesture thresholds, source-aware control routing.
+
+- [ ] **T37: Volume mute button.** Add a user-facing button next to the shared-sink volume control. Mute by setting the default sink's volume to **0%**; on unmute restore the last known nonzero volume, or **10%** if none is known. If the slider or an external volume knob raises the sink above zero, treat that as unmuting and keep the button/slider synchronized with `VolumeController`'s existing 1-second external-volume polling. The planned knob changes the volume level, not the sink's separate mute flag. Test restore, fallback, slider changes, and externally observed changes without altering source-exclusivity logic.
+  - Learn: volume state round-tripping, external-change polling, preserving the last nonzero value.
+
+- [ ] **T38: Long-word title wrapping (do last; layout still evolving).** After the touch layout settles, ensure long titles such as “Good Vibrations - Remastered” wrap or elide cleanly within the Left Column's three-line limit in both themes, without clipping or overlapping other metadata. Verify on the actual 1024×600 layout.
+  - Learn: QML text measurement, word-wrap and elision under constrained layouts.
+
+## Possible Improvements and Changes
+
+- **Spotify queue / playlist exploration (discussion only).** Spotify's authenticated Web API offers `GET /me/player/queue` with user playback-read permission; the current spotifyd MPRIS interface does not expose the user's queue. Decide later whether read-only queue viewing justifies a separate OAuth integration; keep phone-driven playlist selection for now. No implementation task yet.
+- **Portrait layout (design pending).** A system-repo Cage output rotation could provide a 600×1024 canvas; confirm on the Pi that the display and touch coordinates rotate together. This app's fixed three-column 1024×600 layout would need a separately designed portrait view. Revisit after the design is settled; no implementation task yet.

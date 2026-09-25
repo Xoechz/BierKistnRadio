@@ -2,6 +2,8 @@
 
 This document defines the contract between the **BierKistn Radio UI** (this repo) and the **NixOS system repository** that consumes it as a flake input. The system repo is responsible for providing the runtime environment described here; the app assumes all of it is in place and does not configure any of it itself.
 
+**Feedback handoff:** §15 records the *planned* changes to source lifecycle and Bluetooth pairing. Sections 2–14 describe the existing runtime contract and implementation status until the corresponding tasks are delivered. In particular, §15 will supersede the always-on/auto-accept assumptions in §3, §11, §13, §14 and ADR 0008 after implementation.
+
 For architectural rationale, see [ADR 0001](./docs/adr/0001-mpris2-mopidy-as-playback-abstraction.md) and [ADR 0002](./docs/adr/0002-tech-stack.md). For domain terminology, see [CONTEXT.md](./CONTEXT.md).
 
 ---
@@ -252,3 +254,25 @@ Resolved by [ADR 0007](./docs/adr/0007-brightness-controller-ddcutil.md): the ap
 
 - `Powered = true` is not set explicitly, but `AutoEnable = true` powers the adapter at boot — treated as satisfied, no action needed.
 - `monitor.bluez.seat-monitoring` is unset (default). The logind active-session note in §3 is a *conditional* ("if seat-monitoring interferes") — only address if Bluetooth nodes fail to appear in practice.
+
+---
+
+## 15. Planned system-repo handoff (feedback)
+
+**Status: agreed design, not yet implemented.** The system configuration lives in `~/NyxOS`; its separate agent owns system-repo edits. This section is the interface specification for TODO T29/T32 (system) and T30/T31/T33 (app). Keep the existing contract above as the description of what currently runs until both sides are updated and verified on the Pi. The new source policy replaces ADR 0008's mute/pause-only exclusivity mechanism once implemented; update that ADR and the older always-on language here at the same time.
+
+### 15.1 Exclusive source lifecycle
+
+- **Boot into Spotify mode:** spotifyd is running as the kiosk user's systemd *user* service, sharing the app's session bus; the BlueZ adapter radio is powered **off**. BlueZ, NetworkManager, PipeWire, and WirePlumber remain available system/session services. The app starts in Spotify mode; there is no persisted source selection. Spotify Connect can become available without first touching the screen.
+- **Spotify → Bluetooth:** the app requests spotifyd stop, observes that its user service is no longer running, *then* powers on the BlueZ adapter. The Bluetooth A2DP sink must be available once the radio comes up. Connected phones are not connected automatically by the app; show Bluetooth waiting until one connects. The phone initiates pairing/connection and playback.
+- **Bluetooth → Spotify:** the app powers off the BlueZ adapter first (disconnecting phones and making Bluetooth unavailable for pairing/reconnection), observes `Powered=false`, *then* starts spotifyd. A running spotifyd user service counts as ready even when its MPRIS name has not yet appeared; a phone can select the speaker later. Do not wait for a track or MPRIS presence before clearing loading. Never auto-Play either source.
+- **No simultaneous audio:** perform the shutdown/power-off step before enabling the requested source. The old per-node BT mute and MPRIS pause are not the primary exclusivity mechanism; do not rely on them to hide a failed shutdown. If a shutdown or startup step fails, report the failure visibly rather than enabling both sources.
+- **Application/system interface:** expose a reliable way for the kiosk app to request and observe start/stop/status of **its own spotifyd user unit**, and to read/write `org.bluez.Adapter1.Powered` over the system bus. Preserve the shared user session bus for MPRIS. Make the user-unit policy compatible with an intentional stop (no immediate automatic resurrection); keep daemon crash recovery compatible with the selected source. Grant the kiosk user only the necessary service-management/BlueZ D-Bus permissions and surface denial to the app as an error. The system repo owns unit policy and authorization; the C++ controllers own calls, ordering, and UI state. Agree on the concrete unit name and status interface when wiring the two sides.
+- **Loading and errors:** the app overlays a translucent gray modal loading view and indicator during the entire source transition (outgoing shutdown and incoming startup), for at most **10 s**. On failure/timeout it removes the overlay, keeps the *requested* source selected, shows a visible error and Retry action, and keeps observing readiness for recovery; passive polling does not repeatedly launch a failed unit. A Bluetooth connection is not required to end loading, and Spotify MPRIS presence is not a startup prerequisite. The app must also surface permission-denied errors.
+- **System-agent verification:** on the Pi, verify Spotify is available at boot and the BT radio is off; switching to Bluetooth removes Spotify Connect and allows a phone to connect and stream; switching back powers off BT, disconnects the phone, and restores Spotify Connect. Check transition ordering, user-service restarts, permissions, 10-second timeout/failure/recovery, and no overlapping audio.
+
+### 15.2 Pairing confirmation
+
+- **Replace** `systemd.services.bt-agent`'s `NoInputNoOutput` auto-accept policy with the application's confirmation-capable BlueZ pairing agent. There must not be a second agent silently accepting pairing while the app is running. Do not auto-accept when the app is unavailable; pairing is possible only while Bluetooth mode has powered on the radio and the app can show a prompt.
+- The C++ Bluetooth controller registers an `org.bluez.Agent1` object with BlueZ `AgentManager1` using a display/confirmation-capable pairing capability and coordinates its D-Bus requests with a QML confirmation dialog. For new phones, show BlueZ's dynamically generated **six-digit, zero-padded** code and device identity; the user checks the same code on the phone and confirms or rejects on the touchscreen. Where BlueZ selects `RequestConfirmation`, reply success only on explicit matching-code confirmation; handle `DisplayPasskey`/cancellation according to BlueZ's selected association flow. Reject unanswered requests after **30 s**, including on dialog cancellation or app exit. Do not manufacture a fixed PIN or silently trust a new device.
+- Previously paired phones reconnect without a new prompt when the Bluetooth source is selected. The system repo must allow the kiosk app to register/use the agent with BlueZ and authorize the requisite adapter operations; check actual BlueZ bus policy/permissions on the Pi rather than assuming a polkit rule alone suffices. Verify a new phone's accept, reject and timeout cases, and an already-paired phone's reconnect.
