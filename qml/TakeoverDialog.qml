@@ -9,10 +9,11 @@ Popup {
     modal: true
     width: 480
     height: 280
-    closePolicy: Popup.CloseOnEscape
+    closePolicy: Popup.NoAutoClose
     anchors.centerIn: Overlay.overlay
 
-    visible: PlaybackController.bluetooth.takeoverPending
+    property var bluetoothClient: PlaybackController.bluetooth
+    visible: root.bluetoothClient.takeoverPending
 
     property int countdown: 10
 
@@ -29,8 +30,8 @@ Popup {
         }
 
         Label {
-            text: "Keep playing on " + PlaybackController.bluetooth.connectedDeviceName
-                  + ", or switch to " + PlaybackController.bluetooth.takeoverIncomingName + "?"
+            text: "Keep playing on " + root.bluetoothClient.connectedDeviceName
+                  + ", or switch to " + root.bluetoothClient.takeoverIncomingName + "?"
             font.pixelSize: Theme.fontSizeMedium
             color: Theme.secondaryTextColor
             wrapMode: Text.WordWrap
@@ -38,9 +39,29 @@ Popup {
         }
 
         Label {
+            objectName: "takeoverCountdown"
             text: "Auto-selecting Keep Current in " + root.countdown + "s"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryTextColor
+            visible: !root.bluetoothClient.takeoverResolving
+                     && root.bluetoothClient.takeoverError === ""
+        }
+
+        Label {
+            text: "Disconnecting device…"
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.secondaryTextColor
+            visible: root.bluetoothClient.takeoverResolving
+        }
+
+        Label {
+            objectName: "takeoverError"
+            text: root.bluetoothClient.takeoverError
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.errorColor
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+            visible: text !== ""
         }
 
         Item { Layout.fillHeight: true }
@@ -50,13 +71,17 @@ Popup {
             spacing: Theme.defaultSpacing
 
             Button {
+                objectName: "takeoverKeep"
                 text: "Keep Current"
+                enabled: !root.bluetoothClient.takeoverResolving
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
                 onClicked: root.resolveTakeover(BluetoothClient.KeepCurrent)
             }
             Button {
-                text: "Switch to " + PlaybackController.bluetooth.takeoverIncomingName
+                objectName: "takeoverSwitch"
+                text: "Switch to " + root.bluetoothClient.takeoverIncomingName
+                enabled: !root.bluetoothClient.takeoverResolving
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
                 Material.background: Theme.primaryColor
@@ -66,7 +91,7 @@ Popup {
     }
 
     function resolveTakeover(choice) {
-        PlaybackController.bluetooth.resolveTakeover(choice)
+        root.bluetoothClient.resolveTakeover(choice)
     }
 
     onVisibleChanged: {
@@ -75,11 +100,22 @@ Popup {
         }
     }
 
+    Connections {
+        target: root.bluetoothClient
+        function onTakeoverResolvingChanged() {
+            if (!root.bluetoothClient.takeoverResolving
+                    && root.bluetoothClient.takeoverPending) {
+                root.countdown = 10
+            }
+        }
+    }
+
     Timer {
         id: countdownTimer
         interval: 1000
         repeat: true
-        running: root.visible
+        running: root.visible && !root.bluetoothClient.takeoverResolving
+                 && root.bluetoothClient.takeoverError === ""
         onTriggered: {
             root.countdown -= 1
             if (root.countdown <= 0) {

@@ -58,14 +58,14 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 | Controller           | Service                          | Role                                                                                                                                                           |
 |----------------------|----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `WifiController`     | `org.freedesktop.NetworkManager` | Scan, connect, disconnect, connection state                                                                                                                    |
-| `BluetoothClient`    | `org.bluez`                      | `Device1` state (connected device, takeover kick), `MediaPlayer1` for best-effort AVRCP transport/metadata, `Adapter1.Set` for the `Discoverable` re-assertion |
+| `BluetoothClient`    | `org.bluez`                      | `Device1` state (connected device, takeover kick), `MediaPlayer1` for best-effort AVRCP transport/metadata, `org.freedesktop.DBus.Properties.Set` on `Adapter1` for the `Discoverable` re-assertion |
 | `PlaybackController` | —                                | Facade only; no D-Bus of its own. Routes transport to `SpotifyClient` / `BluetoothClient`.                                                                     |
 
 ### Bluetooth connection model
 
 The Bluetooth sink is **phone-driven** — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md). The app's `BluetoothClient` handles **connection state only** and never initiates pairing, discovery, or connection. The system repo owns:
 
-- **Always discoverable + pairable (base policy).** Adapter set to `Discoverable=true`, `Pairable=true`, `DiscoverableTimeout=0` (persist), `AutoEnable=true`, `Powered=true`. BlueZ automatically drops `Discoverable` once a device connects, so the base policy is NOT re-asserted by an ongoing system service. Instead, the **app re-asserts** `Discoverable=true` on the adapter (`org.bluez.Adapter1.Set`) whenever the user switches to the Bluetooth source while no device is connected (`BluetoothWaiting`). The app has no Discoverable *toggle*, but it does issue this one-shot assertion on entering `BluetoothWaiting`. The D-Bus policy must authorize the kiosk user for `org.bluez.Adapter1.Set`.
+- **Always discoverable + pairable (base policy).** Adapter set to `Discoverable=true`, `Pairable=true`, `DiscoverableTimeout=0` (persist), `AutoEnable=true`, `Powered=true`. BlueZ automatically drops `Discoverable` once a device connects, so the base policy is NOT re-asserted by an ongoing system service. Instead, the **app re-asserts** `Discoverable=true` on the adapter via `org.freedesktop.DBus.Properties.Set("org.bluez.Adapter1", "Discoverable", true)` whenever the user switches to the Bluetooth source while no device is connected (`BluetoothWaiting`). The app has no Discoverable *toggle*, but it does issue this one-shot assertion on entering `BluetoothWaiting`. The kiosk user must be authorized to write that BlueZ property.
 - **A2DP-sink-only role** in WirePlumber: `bluez5.roles = [ a2dp_sink ]`, `device.profile = "a2dp-sink"`, `bluez5.auto-connect = []`, and `bluez5.enable-sbc-xq = true` for high-quality SBC codec.
 
 The app observes `org.bluez.Device1` objects (`PropertiesChanged` for `Connected`/`Name`) and calls `Device1.Disconnect()` to kick a device. **Takeover**: when a second phone connects while one is active, the app shows a modal dialog ("Keep <current> or switch to <new>?", default keep after 10 s) and disconnects accordingly — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md).
@@ -235,13 +235,13 @@ These contract items are **NOT** satisfied by the current system-module config:
 
 The interface requires the kiosk user be authorized for the **BlueZ** actions `BluetoothClient`/`WifiController` call (see §3 *Polkit*):
 
-- `org.bluez.Adapter1.Set` — the `Discoverable=true` one-shot re-assertion on entering `BluetoothWaiting` (§3 *Bluetooth connection model*).
+- `org.freedesktop.DBus.Properties.Set` on `org.bluez.Adapter1.Discoverable` — the one-shot re-assertion on entering `BluetoothWaiting` (§3 *Bluetooth connection model*).
 - `org.bluez.MediaPlayer1` method calls (Play/Pause/Next/Previous best-effort AVRCP) — explicitly required by §3 *Best-effort AVRCP controls*.
 - `org.bluez.Device1.Disconnect` — the takeover "kick" (§3).
 
 The current `security.polkit.extraConfig` rule grants **only** `org.freedesktop.NetworkManager.*` and `org.freedesktop.login1.*`. **No BlueZ action is granted.**
 
-This may not bite in practice because BlueZ's net-effect is often gated by the caller being the active session user and a member of the `bluetooth` group (the kiosk user holds the active seat under cage and is in `extraGroups.bluetooth`), rather than by polkit. **Action:** verify on-device whether `Adapter1.Set Property Discoverable`, `Device1.Disconnect`, and `MediaPlayer1.Play/Pause/Next/Previous` succeed for the `kistn` user; if they are policy-rejected, add a polkit rule granting `org.bluez.*` to user `"kistn"` (e.g. prefix-match on `"org.bluez."`).
+This may not bite in practice because BlueZ's net-effect is often gated by the caller being the active session user and a member of the `bluetooth` group (the kiosk user holds the active seat under cage and is in `extraGroups.bluetooth`), rather than by polkit. **Action:** verify on-device whether `Properties.Set` for `Adapter1.Discoverable`, `Device1.Disconnect`, and `MediaPlayer1.Play/Pause/Next/Previous` succeed for the `kistn` user; if policy-rejected, investigate the actual BlueZ D-Bus policy/authorization mechanism before granting access. A `Properties.Set` call uses the standard D-Bus interface, so a polkit rule matching only an `org.bluez.*` action name is not by itself proof of authorization.
 
 ### 14.2 Brightness control (app-owned, §9 / ADR 0007)
 

@@ -1,9 +1,12 @@
 #pragma once
 
+#include <QDBusConnection>
 #include <QDBusObjectPath>
+#include <QDBusServiceWatcher>
 #include <QMap>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
@@ -16,10 +19,15 @@ class BluetoothClient : public QObject {
 
   Q_PROPERTY(QString connectedDeviceName READ connectedDeviceName NOTIFY
                  connectedDeviceNameChanged)
+  Q_PROPERTY(bool connected READ hasConnectedDevice NOTIFY
+                 connectedDeviceNameChanged)
   Q_PROPERTY(
       bool takeoverPending READ takeoverPending NOTIFY takeoverPendingChanged)
   Q_PROPERTY(QString takeoverIncomingName READ takeoverIncomingName NOTIFY
                  takeoverIncomingNameChanged)
+  Q_PROPERTY(bool takeoverResolving READ takeoverResolving NOTIFY
+                 takeoverResolvingChanged)
+  Q_PROPERTY(QString takeoverError READ takeoverError NOTIFY takeoverErrorChanged)
   Q_PROPERTY(bool adapterPowered READ adapterPowered NOTIFY
                  adapterPoweredChanged)
   Q_PROPERTY(bool adapterDiscoverable READ adapterDiscoverable NOTIFY
@@ -46,10 +54,14 @@ public:
   Q_ENUM(TakeoverChoice)
 
   explicit BluetoothClient(QObject *parent = nullptr);
+  explicit BluetoothClient(const QDBusConnection &bus, QObject *parent = nullptr);
 
   QString connectedDeviceName() const;
+  bool hasConnectedDevice() const;
   bool takeoverPending() const;
   QString takeoverIncomingName() const;
+  bool takeoverResolving() const;
+  QString takeoverError() const;
   bool adapterPowered() const;
   bool adapterDiscoverable() const;
   bool adapterPairable() const;
@@ -107,7 +119,8 @@ public:
                                  const QString &interface);
   void bluezPropertyChangedForTest(const QString &objectPath,
                                    const QString &interface,
-                                   const QVariantMap &changedProps);
+                                   const QVariantMap &changedProps,
+                                   const QStringList &invalidated = {});
 
   // Test hook (legacy): drives connection state the way BlueZ updates it at
   // runtime, without needing a live device. Empty name = all disconnected.
@@ -117,6 +130,8 @@ signals:
   void connectedDeviceNameChanged();
   void takeoverPendingChanged();
   void takeoverIncomingNameChanged();
+  void takeoverResolvingChanged();
+  void takeoverErrorChanged();
   void adapterPoweredChanged();
   void adapterDiscoverableChanged();
   void adapterPairableChanged();
@@ -135,6 +150,7 @@ private:
     QString name;
     QString alias;
     QString playerPath;
+    QVariantMap playerProperties;
     bool connected = false;
   };
 
@@ -142,13 +158,15 @@ private:
                            const QVariantMap &props);
   void applyInterfaceRemoved(const QString &path, const QString &interface);
   void applyPropertiesChanged(const QString &path, const QString &interface,
-                              const QVariantMap &props);
+                              const QVariantMap &props,
+                              const QStringList &invalidated = {});
   void subscribeProperties(const QString &path, const QString &interface);
+  void unsubscribeProperties(const QString &path);
+  void refreshActivePlayer();
   void onDeviceAdded(const QString &path, const QVariantMap &props);
   void onDevicePropsChanged(const QString &path, const QVariantMap &props);
   void onDeviceRemoved(const QString &path);
   void onPlayerAdded(const QString &path, const QVariantMap &props);
-  void onPlayerPropsChanged(const QString &path, const QVariantMap &props);
   void onPlayerRemoved(const QString &path);
   void onAdapterAdded(const QString &path, const QVariantMap &props);
   void onAdapterPropsChanged(const QString &path, const QVariantMap &props);
@@ -156,10 +174,13 @@ private:
   void applyPlayerProps(const QVariantMap &props);
   void applyAdapterProps(const QVariantMap &props);
   void resetAvrcp();
+  static QString deviceDisplayName(const DeviceState &device);
   QString parentDeviceOf(const QString &objectPath) const;
   void recalculate();
   void setActiveDevice(const QString &path);
-  void disconnectDevice(const QString &path);
+  void finishTakeoverAttempt(const QString &error = QString());
+  void setTakeoverResolving(bool resolving);
+  void setTakeoverError(const QString &error);
   void updateTakeoverIncoming();
   void setTakeoverPending(bool pending);
   void setTakeoverIncomingName(const QString &name);
@@ -178,6 +199,9 @@ private:
   // (re)applies the current intent (`m_muted`) to a freshly connected device.
   void setNodeMuted(const QString &address, bool muted);
   void assertDeviceMute(const QString &address);
+  void refreshManagedObjects();
+  void clearBluezState();
+  void subscribeObjectManager();
 
 private slots:
   void onInterfacesAdded(const QDBusObjectPath &path,
@@ -188,6 +212,12 @@ private slots:
 private:
   DbusCallable m_dbusCall;
   CommandRunner m_runner;
+  QDBusConnection m_bus;
+  QDBusServiceWatcher *m_serviceWatcher = nullptr;
+  quint64 m_objectManagerGeneration = 0;
+  QMap<QString, QObject *> m_propertySubscribers;
+  QMap<QString, QVariantMap> m_deferredPlayers;
+  quint64 m_playerFetchGeneration = 0;
 
   QMap<QString, DeviceState> m_devices; // Device1 path -> state
   QStringList m_connectedOrder;         // connection order (last = newest)
@@ -196,7 +226,12 @@ private:
   QString m_adapterPath;
   QString m_takeoverDevicePath;
   QString m_takeoverIncomingName;
+  QString m_takeoverTargetPath;
+  QString m_takeoverError;
   bool m_takeoverPending = false;
+  bool m_takeoverResolving = false;
+  quint64 m_takeoverAttempt = 0;
+  QTimer m_takeoverTimer;
   bool m_adapterPowered = false;
   bool m_adapterDiscoverable = false;
   bool m_adapterPairable = false;

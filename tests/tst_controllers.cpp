@@ -5,10 +5,60 @@
 #include "VolumeController.h"
 #include "WifiController.h"
 #include <QDBusObjectPath>
+#include <QDBusMetaType>
+#include <QDBusVariant>
+#include <QDBusArgument>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusVirtualObject>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
+#include <QUuid>
 #include <QtTest/QtTest>
 #include <functional>
+
+class MockBlueZObjects : public QDBusVirtualObject {
+public:
+  QString introspect(const QString &) const override {
+    return QStringLiteral("<interface name=\"org.freedesktop.DBus.ObjectManager\">"
+                          "<method name=\"GetManagedObjects\">"
+                          "<arg direction=\"out\" type=\"a{oa{sa{sv}}}\"/>"
+                          "</method></interface>");
+  }
+
+  bool handleMessage(const QDBusMessage &message,
+                     const QDBusConnection &connection) override {
+    if (message.member() != QStringLiteral("GetManagedObjects")) {
+      return false;
+    }
+    QDBusArgument arg;
+    arg.beginMap(QMetaType::fromType<QDBusObjectPath>(),
+                 QMetaType::fromType<QMap<QString, QVariantMap>>());
+    const auto add = [&arg](const QString &path, const QString &interface,
+                            const QVariantMap &props) {
+      arg.beginMapEntry();
+      arg << QDBusObjectPath(path)
+          << QMap<QString, QVariantMap>{{interface, props}};
+      arg.endMapEntry();
+    };
+    // Deliberately put the player before its Device1 in the snapshot.
+    add(QStringLiteral("/org/bluez/hci0/dev_A/player0"),
+        QStringLiteral("org.bluez.MediaPlayer1"),
+        {{QStringLiteral("Status"), QStringLiteral("playing")},
+         {QStringLiteral("Track"), QVariantMap{{QStringLiteral("Title"),
+                                                QStringLiteral("Initial Track")},
+                                               {QStringLiteral("Duration"), 80000u}}}});
+    add(QStringLiteral("/org/bluez/hci0/dev_A"), QStringLiteral("org.bluez.Device1"),
+        {{QStringLiteral("Connected"), true},
+         {QStringLiteral("Alias"), QStringLiteral("Phone")}});
+    add(QStringLiteral("/org/bluez/hci0"), QStringLiteral("org.bluez.Adapter1"),
+        {{QStringLiteral("Powered"), true}});
+    arg.endMap();
+    connection.send(message.createReply(QVariant::fromValue(arg)));
+    return true;
+  }
+};
 
 class TestControllers : public QObject {
   Q_OBJECT
@@ -27,6 +77,9 @@ private slots:
   void testWifiControllerTracksActiveConnectionState();
   void testWifiControllerSurfacesConnectError();
   void testWifiControllerStaticHelpers();
+  void testWifiControllerListsExistingAccessPoints();
+  void testWifiControllerScanError();
+  void testWifiControllerActivationResult();
   void testBluetoothClientDefaults();
   void testBluetoothTracksConnectedDevices();
   void testBluetoothTakeoverDetection();
@@ -37,6 +90,9 @@ private slots:
   void testBluetoothEnsureDiscoverableCallsSet();
   void testBluetoothResolveTakeoverKeepDisconnectsNew();
   void testBluetoothResolveTakeoverSwitchDisconnectsOld();
+  void testBluetoothTakeoverDisconnectFailureAndRetry();
+  void testBluetoothTakeoverIncomingDisappearsDuringDisconnect();
+  void testBluetoothTakeoverDisconnectTimeout();
   void testBluetoothAvrcpStateFromPlayer();
   void testBluetoothAvrcpOnlyStatusNoTrack();
   void testBluetoothTransportTargetsActiveDevice();
@@ -45,6 +101,10 @@ private slots:
   void testBluetoothMuteCoversAllConnectedDevices();
   void testBluetoothNodeIdFromPwDump();
   void testBluetoothAvrcpResetsOnDeviceChange();
+  void testBluetoothRetargetsPlayerAfterTakeover();
+  void testBluetoothDeviceWithoutNameIsDetected();
+  void testBluetoothPlayerAddedBeforeDevice();
+  void testBluetoothPrivateBusObjectManagerAndProperties();
   void testSpotifyClientDefaults();
   void testVolumeControllerDefaults();
   void testVolumeControllerParse();
@@ -135,6 +195,7 @@ void TestControllers::testWifiControllerDefaults() {
   QCOMPARE(c.ssid(), QString());
   QCOMPARE(c.signalStrength(), 0);
   QCOMPARE(c.errorMessage(), QString());
+  QCOMPARE(c.connecting(), false);
   QCOMPARE(c.networks(), QVariantList());
 }
 
@@ -299,28 +360,50 @@ void TestControllers::testWifiControllerConnectIssuesAddAndConnect() {
   bool addAndConnectCalled = false;
   QVariantMap capturedSettings;
   c.setDbusCallableForTest(
-      [&addAndConnectCalled, &capturedSettings](
-          const QString &, const QString &objectPath, const QString &interface,
-          const QString &method, const QVariantList &args,
-          const std::function<void(const QVariant &, const QString &)> &onFinished) {
-        if (interface == QStringLiteral("org.freedesktop.NetworkManager.Settings") &&
-            method == QStringLiteral("AddAndConnectConnection")) {
-          addAndConnectCalled = true;
-          capturedSettings = args.value(0).toMap();
-          onFinished(QVariant(), QString());
-          return;
-        }
-        onFinished(QVariant(), QString());
-      });
+       [&addAndConnectCalled, &capturedSettings](
+           const QString &, const QString &objectPath, const QString &interface,
+           const QString &method, const QVariantList &args,
+           const std::function<void(const QVariant &, const QString &)> &onFinished) {
+         if (interface == QStringLiteral("org.freedesktop.NetworkManager") &&
+             objectPath == QStringLiteral("/org/freedesktop/NetworkManager") &&
+             method == QStringLiteral("AddAndActivateConnection")) {
+           addAndConnectCalled = true;
+           QCOMPARE(args.size(), 3);
+           QCOMPARE(args.at(1).value<QDBusObjectPath>().path(),
+                    QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"));
+           QCOMPARE(args.at(2).value<QDBusObjectPath>().path(), QStringLiteral("/"));
+           const auto profile = args.at(0).value<WifiController::SettingsMap>();
+           for (auto it = profile.cbegin(); it != profile.cend(); ++it) {
+             capturedSettings.insert(it.key(), it.value());
+           }
+           onFinished(QVariant(), QString());
+           return;
+         }
+         if (method == QStringLiteral("GetDevices")) {
+           onFinished(QVariant::fromValue(QList<QDBusObjectPath>{QDBusObjectPath(
+               QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"))}), QString());
+           return;
+         }
+         if (method == QStringLiteral("Get") && args.value(1).toString() ==
+                 QStringLiteral("DeviceType")) {
+           onFinished(2u, QString());
+           return;
+         }
+         onFinished(QVariant(), QString());
+       });
 
+  c.scan();
   c.connect(QStringLiteral("MyNet"), QStringLiteral("hunter2"));
   QVERIFY2(addAndConnectCalled,
-           "connect() must call AddAndConnectConnection on Settings");
+            "connect() must call AddAndActivateConnection on the manager");
   QVERIFY(!capturedSettings.isEmpty());
   const QVariantMap conn = capturedSettings[QStringLiteral("connection")].toMap();
   QCOMPARE(conn[QStringLiteral("type")].toString(), QStringLiteral("802-11-wireless"));
   QCOMPARE(capturedSettings[QStringLiteral("802-11-wireless")].toMap()[QStringLiteral("ssid")].toByteArray(),
            QByteArray("MyNet"));
+  QCOMPARE(QString::fromLatin1(QDBusMetaType::typeToSignature(
+               QMetaType::fromType<WifiController::SettingsMap>())),
+           QStringLiteral("a{sa{sv}}"));
 }
 
 void TestControllers::testWifiControllerConnectOpenNetworkNoSecurity() {
@@ -330,12 +413,25 @@ void TestControllers::testWifiControllerConnectOpenNetworkNoSecurity() {
       [&capturedSettings](const QString &, const QString &, const QString &interface,
                           const QString &method, const QVariantList &args,
                           const std::function<void(const QVariant &, const QString &)> &onFinished) {
-        if (interface == QStringLiteral("org.freedesktop.NetworkManager.Settings") &&
-            method == QStringLiteral("AddAndConnectConnection")) {
-          capturedSettings = args.value(0).toMap();
+        if (interface == QStringLiteral("org.freedesktop.NetworkManager") &&
+            method == QStringLiteral("AddAndActivateConnection")) {
+          QCOMPARE(args.at(2).value<QDBusObjectPath>().path(), QStringLiteral("/ap1"));
+          const auto profile = args.value(0).value<WifiController::SettingsMap>();
+          for (auto it = profile.cbegin(); it != profile.cend(); ++it) {
+            capturedSettings.insert(it.key(), it.value());
+          }
+        } else if (method == QStringLiteral("GetDevices")) {
+          onFinished(QVariant::fromValue(QList<QDBusObjectPath>{QDBusObjectPath(
+              QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"))}), QString());
+          return;
+        } else if (method == QStringLiteral("Get") && args.value(1).toString() ==
+                       QStringLiteral("DeviceType")) {
+          onFinished(2u, QString());
+          return;
         }
         onFinished(QVariant(), QString());
       });
+  c.scan();
   c.accessPointAddedForTest(QStringLiteral("/ap1"),
                             {{QStringLiteral("Ssid"), QVariant(QByteArray("OpenNet"))},
                              {QStringLiteral("Strength"), QVariant(90)},
@@ -356,11 +452,10 @@ void TestControllers::testWifiControllerDefaultTracksDisconnected() {
 
 void TestControllers::testWifiControllerTracksActiveConnectionState() {
   WifiController c;
-  const QString activeConnPath = QStringLiteral("/org/freedesktop/NetworkManager/ActiveConnection/3");
   const QString apPath = QStringLiteral("/org/freedesktop/NetworkManager/AccessPoint/7");
 
   c.setDbusCallableForTest(
-      [activeConnPath, apPath](const QString &, const QString &objectPath,
+       [apPath](const QString &, const QString &objectPath,
                                const QString &interface, const QString &method,
                                const QVariantList &args,
                                const std::function<void(const QVariant &, const QString &)> &onFinished) {
@@ -368,29 +463,33 @@ void TestControllers::testWifiControllerTracksActiveConnectionState() {
             method == QStringLiteral("Get")) {
           const QString targetInterface = args.value(0).toString();
           const QString prop = args.value(1).toString();
-          if (targetInterface == QStringLiteral("org.freedesktop.NetworkManager") &&
-              prop == QStringLiteral("PrimaryConnection")) {
-            onFinished(QVariant::fromValue(QDBusObjectPath(activeConnPath)), QString());
+          if (prop == QStringLiteral("DeviceType")) {
+            onFinished(2u, QString());
+            return;
+        }
+          if (prop == QStringLiteral("State")) {
+            onFinished(100u, QString());
             return;
           }
-          if (targetInterface == QStringLiteral("org.freedesktop.NetworkManager.Connection.Active") &&
-              prop == QStringLiteral("SpecificObject")) {
+          if (targetInterface == QStringLiteral("org.freedesktop.NetworkManager.Device.Wireless") &&
+              prop == QStringLiteral("ActiveAccessPoint")) {
             onFinished(QVariant::fromValue(QDBusObjectPath(apPath)), QString());
             return;
           }
-          if (targetInterface == QStringLiteral("org.freedesktop.NetworkManager.AccessPoint")) {
-            if (prop == QStringLiteral("Ssid")) {
-              onFinished(QVariant(QByteArray("MyNet")), QString());
-              return;
-            }
-            if (prop == QStringLiteral("Strength")) {
-              onFinished(QVariant(88), QString());
-              return;
-            }
-          }
         }
+        if (method == QStringLiteral("GetAll") && objectPath == apPath) {
+          onFinished(QVariantMap{{QStringLiteral("Ssid"), QByteArray("MyNet")},
+                               {QStringLiteral("Strength"), 88}}, QString());
+          return;
+        }
+        if (method == QStringLiteral("GetDevices")) {
+          onFinished(QVariant::fromValue(QList<QDBusObjectPath>{QDBusObjectPath(
+              QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"))}), QString());
+          return;
+          }
         onFinished(QVariant(), QString());
       });
+  c.scan();
   c.refreshActiveConnection();
   QCOMPARE(c.connected(), true);
   QCOMPARE(c.ssid(), QStringLiteral("MyNet"));
@@ -402,18 +501,142 @@ void TestControllers::testWifiControllerSurfacesConnectError() {
   const QString accessDenied = QStringLiteral("org.freedesktop.DBus.Error.AccessDenied");
   c.setDbusCallableForTest(
       [accessDenied](const QString &, const QString &, const QString &interface,
-                     const QString &method, const QVariantList &,
+                      const QString &method, const QVariantList &args,
                      const std::function<void(const QVariant &, const QString &)> &onFinished) {
-        if (interface == QStringLiteral("org.freedesktop.NetworkManager.Settings") &&
-            method == QStringLiteral("AddAndConnectConnection")) {
+        if (interface == QStringLiteral("org.freedesktop.NetworkManager") &&
+            method == QStringLiteral("AddAndActivateConnection")) {
           onFinished(QVariant(), accessDenied);
+          return;
+        }
+        if (method == QStringLiteral("GetDevices")) {
+          onFinished(QVariant::fromValue(QList<QDBusObjectPath>{QDBusObjectPath(
+              QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"))}), QString());
+          return;
+        }
+        if (method == QStringLiteral("Get") && args.value(1).toString() ==
+                QStringLiteral("DeviceType")) {
+          onFinished(2u, QString());
           return;
         }
         onFinished(QVariant(), QString());
       });
+  c.scan();
   c.connect(QStringLiteral("MyNet"), QStringLiteral("hunter2"));
-  QVERIFY(!c.errorMessage().isEmpty());
+  QCOMPARE(c.errorMessage(), QStringLiteral("Permission denied — check system config"));
+  QCOMPARE(c.connecting(), false);
   QVERIFY(!c.connected());
+}
+
+void TestControllers::testWifiControllerListsExistingAccessPoints() {
+  WifiController c;
+  const QString apPath = QStringLiteral("/org/freedesktop/NetworkManager/AccessPoint/7");
+  int subscriptionsToInventory = 0;
+  c.setDbusCallableForTest(
+      [&subscriptionsToInventory, apPath](
+          const QString &, const QString &path, const QString &,
+          const QString &method, const QVariantList &args,
+          const std::function<void(const QVariant &, const QString &)> &done) {
+        if (method == QStringLiteral("GetDevices")) {
+          done(QVariant::fromValue(QList<QDBusObjectPath>{QDBusObjectPath(
+              QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"))}), QString());
+        } else if (method == QStringLiteral("Get") &&
+                   args.value(1).toString() == QStringLiteral("DeviceType")) {
+          done(2u, QString());
+        } else if (method == QStringLiteral("GetAllAccessPoints")) {
+          ++subscriptionsToInventory;
+          done(QVariant::fromValue(QList<QDBusObjectPath>{QDBusObjectPath(apPath)}),
+               QString());
+        } else if (method == QStringLiteral("GetAll") && path == apPath) {
+          done(QVariantMap{{QStringLiteral("Ssid"), QByteArray("Existing")},
+                           {QStringLiteral("Strength"), 75u}}, QString());
+        } else {
+          done(QVariant(), QString());
+        }
+      });
+  c.scan();
+  QCOMPARE(c.networks().size(), 1);
+  QCOMPARE(c.networks().first().toMap().value(QStringLiteral("ssid")).toString(),
+           QStringLiteral("Existing"));
+  const QVariantMap changed{{QStringLiteral("LastScan"), 123}};
+  QVERIFY(QMetaObject::invokeMethod(&c, "onWifiPropertiesChanged",
+      Qt::DirectConnection,
+      Q_ARG(QString, QStringLiteral("org.freedesktop.NetworkManager.Device.Wireless")),
+      Q_ARG(QVariantMap, changed), Q_ARG(QStringList, QStringList())));
+  QCOMPARE(subscriptionsToInventory, 2);
+  QCOMPARE(c.networks().size(), 1); // an unchanged AP is not re-added twice
+}
+
+void TestControllers::testWifiControllerScanError() {
+  WifiController c;
+  c.setDbusCallableForTest(
+      [](const QString &, const QString &, const QString &,
+         const QString &method, const QVariantList &,
+         const std::function<void(const QVariant &, const QString &)> &done) {
+        if (method == QStringLiteral("GetDevices")) {
+          done(QVariant(), QStringLiteral("org.freedesktop.DBus.Error.AccessDenied"));
+        }
+      });
+  c.scan();
+  QCOMPARE(c.errorMessage(), QStringLiteral("Permission denied — check system config"));
+}
+
+void TestControllers::testWifiControllerActivationResult() {
+  WifiController c;
+  const QString apPath = QStringLiteral("/org/freedesktop/NetworkManager/AccessPoint/7");
+  bool differentNetwork = false;
+  c.setDbusCallableForTest(
+      [&differentNetwork, apPath](const QString &, const QString &path,
+                                  const QString &, const QString &method,
+                                  const QVariantList &args,
+                                  const std::function<void(const QVariant &,
+                                                           const QString &)> &done) {
+        if (method == QStringLiteral("GetDevices")) {
+          done(QVariant::fromValue(QList<QDBusObjectPath>{QDBusObjectPath(
+              QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"))}), QString());
+        } else if (method == QStringLiteral("Get") &&
+                   args.value(1).toString() == QStringLiteral("DeviceType")) {
+          done(2u, QString());
+        } else if (method == QStringLiteral("Get") &&
+                   args.value(1).toString() == QStringLiteral("State")) {
+          done(30u, QString());
+        } else if (method == QStringLiteral("Get") &&
+                   args.value(1).toString() == QStringLiteral("ActiveAccessPoint")) {
+          done(QVariant::fromValue(QDBusObjectPath(apPath)), QString());
+        } else if (method == QStringLiteral("GetAll") && path == apPath) {
+          done(QVariantMap{{QStringLiteral("Ssid"),
+                            differentNetwork ? QByteArray("Other") : QByteArray("Chosen")},
+                           {QStringLiteral("Strength"), 80u}}, QString());
+        } else {
+          done(QVariant(), QString());
+        }
+      });
+  c.scan();
+  QSignalSpy succeeded(&c, &WifiController::connectionSucceeded);
+  c.connect(QStringLiteral("Chosen"), QStringLiteral("passphrase"));
+  QCOMPARE(succeeded.count(), 0); // method accepted; not yet activated
+  QCOMPARE(c.connecting(), true);
+  differentNetwork = true;
+  QVERIFY(QMetaObject::invokeMethod(&c, "onWifiDeviceStateChanged",
+      Qt::DirectConnection, Q_ARG(uint, 100u), Q_ARG(uint, 30u), Q_ARG(uint, 0u)));
+  QCOMPARE(succeeded.count(), 0);
+  QCOMPARE(c.connecting(), false);
+  QVERIFY(c.errorMessage().contains(QStringLiteral("different")));
+
+  differentNetwork = false;
+  c.connect(QStringLiteral("Chosen"), QStringLiteral("passphrase"));
+  QVERIFY(QMetaObject::invokeMethod(&c, "onWifiDeviceStateChanged",
+      Qt::DirectConnection, Q_ARG(uint, 100u), Q_ARG(uint, 30u), Q_ARG(uint, 0u)));
+  QCOMPARE(succeeded.count(), 1);
+  QCOMPARE(c.connecting(), false);
+  QCOMPARE(succeeded.first().first().toString(), QStringLiteral("Chosen"));
+  QCOMPARE(c.ssid(), QStringLiteral("Chosen"));
+
+  c.connect(QStringLiteral("Missing"), QStringLiteral("passphrase"));
+  QVERIFY(QMetaObject::invokeMethod(&c, "onWifiDeviceStateChanged",
+      Qt::DirectConnection, Q_ARG(uint, 120u), Q_ARG(uint, 50u), Q_ARG(uint, 7u)));
+  QCOMPARE(succeeded.count(), 1);
+  QVERIFY(c.errorMessage().contains(QStringLiteral("reason 7")));
+  QCOMPARE(c.connecting(), false);
 }
 
 void TestControllers::testBluetoothClientDefaults() {
@@ -482,9 +705,15 @@ void TestControllers::testBluetoothTakeoverExposesNames() {
   QCOMPARE(c.connectedDeviceName(), QStringLiteral("A"));
   QCOMPARE(c.takeoverIncomingName(), QStringLiteral("B"));
 
-  // Resolving clears the incoming-name surface (dialog is done).
+  // A successful method reply alone must not dismiss the dialog.
   c.resolveTakeover(BluetoothClient::KeepCurrent);
+  QCOMPARE(c.takeoverPending(), true);
+  QCOMPARE(c.takeoverResolving(), true);
+  QCOMPARE(c.takeoverIncomingName(), QStringLiteral("B"));
+  c.bluezPropertyChangedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                                {{QStringLiteral("Connected"), false}});
   QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(c.takeoverResolving(), false);
   QCOMPARE(c.takeoverIncomingName(), QString());
 }
 
@@ -571,21 +800,21 @@ void TestControllers::testBluetoothEnsureDiscoverableCallsSet() {
                    const QString &interface, const QString &method,
                    const QVariantList &args,
                    const std::function<void(const QVariant &, const QString &)> &onFinished) {
-        if (interface == QStringLiteral("org.bluez.Adapter1") &&
+        if (interface == QStringLiteral("org.freedesktop.DBus.Properties") &&
             method == QStringLiteral("Set")) {
           setCalled = true;
-          Q_UNUSED(objectPath);
-          QVERIFY(args.value(0).toString() == QStringLiteral("Discoverable"));
-          QVERIFY(args.value(1).canConvert<bool>());
-          QVERIFY(args.value(1).toBool());
-          (void)objectPath;
+          QCOMPARE(objectPath, QStringLiteral("/org/bluez/hci0"));
+          QCOMPARE(args.size(), 3);
+          QCOMPARE(args.at(0).toString(), QStringLiteral("org.bluez.Adapter1"));
+          QCOMPARE(args.at(1).toString(), QStringLiteral("Discoverable"));
+          QCOMPARE(args.at(2).value<QDBusVariant>().variant().toBool(), true);
         }
         onFinished(QVariant(), QString());
       });
   c.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0"),
                             QStringLiteral("org.bluez.Adapter1"), QVariantMap());
   c.ensureDiscoverable();
-  QVERIFY2(setCalled, "ensureDiscoverable() must call Adapter1.Set(Discoverable, true)");
+  QVERIFY2(setCalled, "ensureDiscoverable() must call Properties.Set(Adapter1, Discoverable, true)");
 }
 
 void TestControllers::testBluetoothResolveTakeoverKeepDisconnectsNew() {
@@ -613,10 +842,15 @@ void TestControllers::testBluetoothResolveTakeoverKeepDisconnectsNew() {
   QCOMPARE(c.takeoverPending(), true);
 
   c.resolveTakeover(BluetoothClient::KeepCurrent);
-  QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(c.takeoverPending(), true);
+  QCOMPARE(c.takeoverResolving(), true);
   QCOMPARE(disconnected.size(), 1);
   QVERIFY(disconnected.contains(dB)); // the *new* device is kicked
   QCOMPARE(c.connectedDeviceName(), QStringLiteral("A"));
+  c.bluezPropertyChangedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                                {{QStringLiteral("Connected"), false}});
+  QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(c.takeoverResolving(), false);
 }
 
 void TestControllers::testBluetoothResolveTakeoverSwitchDisconnectsOld() {
@@ -643,11 +877,117 @@ void TestControllers::testBluetoothResolveTakeoverSwitchDisconnectsOld() {
                              {QStringLiteral("Connected"), QVariant(true)}});
 
   c.resolveTakeover(BluetoothClient::SwitchToNew);
-  QCOMPARE(c.takeoverPending(), false);
-  QCOMPARE(c.takeoverIncomingName(), QString());
+  QCOMPARE(c.takeoverPending(), true);
+  QCOMPARE(c.takeoverResolving(), true);
   QCOMPARE(disconnected.size(), 1);
   QVERIFY(disconnected.contains(dA)); // the *old* device is kicked
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("A"));
+  c.bluezPropertyChangedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                                {{QStringLiteral("Connected"), false}});
+  QCOMPARE(c.takeoverPending(), false);
+  QCOMPARE(c.takeoverResolving(), false);
   QCOMPARE(c.connectedDeviceName(), QStringLiteral("B"));
+}
+
+void TestControllers::testBluetoothTakeoverDisconnectFailureAndRetry() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_A");
+  const QString dB = QStringLiteral("/org/bluez/hci0/dev_B");
+  std::function<void(const QVariant &, const QString &)> pendingReply;
+  int calls = 0;
+  c.setDbusCallableForTest(
+      [&pendingReply, &calls](const QString &, const QString &,
+                              const QString &, const QString &method,
+                              const QVariantList &,
+                              const std::function<void(const QVariant &,
+                                                       const QString &)> &done) {
+        if (method == QStringLiteral("Disconnect")) {
+          ++calls;
+          pendingReply = done;
+        }
+      });
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                             {{QStringLiteral("Alias"), QStringLiteral("A")},
+                              {QStringLiteral("Connected"), true}});
+  c.bluezObjectAddedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                             {{QStringLiteral("Alias"), QStringLiteral("B")},
+                              {QStringLiteral("Connected"), true}});
+
+  c.resolveTakeover(BluetoothClient::KeepCurrent);
+  QVERIFY(c.takeoverResolving());
+  c.resolveTakeover(BluetoothClient::SwitchToNew); // no duplicate call
+  QCOMPARE(calls, 1);
+  auto lateReply = pendingReply;
+  pendingReply(QVariant(), QStringLiteral("org.bluez.Error.NotAuthorized"));
+  QVERIFY(c.takeoverPending());
+  QVERIFY(!c.takeoverResolving());
+  QVERIFY(c.takeoverError().contains(QStringLiteral("NotAuthorized")));
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("A"));
+
+  c.resolveTakeover(BluetoothClient::SwitchToNew);
+  QCOMPARE(calls, 2);
+  QCOMPARE(c.takeoverError(), QString());
+  QVERIFY(c.takeoverResolving());
+  lateReply(QVariant(), QStringLiteral("late failure"));
+  QCOMPARE(c.takeoverError(), QString()); // stale callback must not affect retry
+  pendingReply(QVariant(), QString());
+  QVERIFY(c.takeoverResolving()); // method reply still awaits observed disconnect
+  c.bluezPropertyChangedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                                {{QStringLiteral("Connected"), false}});
+  QVERIFY(!c.takeoverPending());
+  QVERIFY(!c.takeoverResolving());
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("B"));
+}
+
+void TestControllers::testBluetoothTakeoverIncomingDisappearsDuringDisconnect() {
+  BluetoothClient c;
+  const QString dA = QStringLiteral("/org/bluez/hci0/dev_A");
+  const QString dB = QStringLiteral("/org/bluez/hci0/dev_B");
+  std::function<void(const QVariant &, const QString &)> lateReply;
+  c.setDbusCallableForTest(
+      [&lateReply](const QString &, const QString &, const QString &,
+                   const QString &method, const QVariantList &,
+                   const std::function<void(const QVariant &,
+                                            const QString &)> &done) {
+        if (method == QStringLiteral("Disconnect")) {
+          lateReply = done;
+        }
+      });
+  c.bluezObjectAddedForTest(dA, QStringLiteral("org.bluez.Device1"),
+                             {{QStringLiteral("Alias"), QStringLiteral("A")},
+                              {QStringLiteral("Connected"), true}});
+  c.bluezObjectAddedForTest(dB, QStringLiteral("org.bluez.Device1"),
+                             {{QStringLiteral("Alias"), QStringLiteral("B")},
+                              {QStringLiteral("Connected"), true}});
+  c.resolveTakeover(BluetoothClient::KeepCurrent);
+  c.bluezObjectRemovedForTest(dB, QStringLiteral("org.bluez.Device1"));
+  QVERIFY(!c.takeoverPending());
+  QVERIFY(!c.takeoverResolving());
+  QCOMPARE(c.takeoverError(), QString());
+  lateReply(QVariant(), QStringLiteral("org.bluez.Error.DoesNotExist"));
+  QCOMPARE(c.takeoverError(), QString());
+}
+
+void TestControllers::testBluetoothTakeoverDisconnectTimeout() {
+  BluetoothClient c;
+  c.setDbusCallableForTest(
+      [](const QString &, const QString &, const QString &,
+         const QString &method, const QVariantList &,
+         const std::function<void(const QVariant &, const QString &)> &done) {
+        if (method == QStringLiteral("Disconnect")) {
+          done(QVariant(), QString());
+        }
+      });
+  c.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0/dev_A"),
+                             QStringLiteral("org.bluez.Device1"),
+                             {{QStringLiteral("Connected"), true}});
+  c.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0/dev_B"),
+                             QStringLiteral("org.bluez.Device1"),
+                             {{QStringLiteral("Connected"), true}});
+  c.resolveTakeover(BluetoothClient::KeepCurrent);
+  QTRY_VERIFY_WITH_TIMEOUT(!c.takeoverResolving(), 6000);
+  QVERIFY(c.takeoverPending());
+  QVERIFY(c.takeoverError().contains(QStringLiteral("timed out")));
 }
 
 void TestControllers::testBluetoothAvrcpStateFromPlayer() {
@@ -905,6 +1245,149 @@ void TestControllers::testBluetoothAvrcpResetsOnDeviceChange() {
   QCOMPARE(c.trackPublished(), false);
   QCOMPARE(c.positionPublished(), false);
   QCOMPARE(c.trackTitle(), QString());
+}
+
+void TestControllers::testBluetoothRetargetsPlayerAfterTakeover() {
+  BluetoothClient c;
+  c.setDbusCallableForTest(
+      [](const QString &, const QString &, const QString &,
+         const QString &method, const QVariantList &,
+         const std::function<void(const QVariant &, const QString &)> &done) {
+        if (method == QStringLiteral("Disconnect")) {
+          done(QVariant(), QString());
+        } else if (method == QStringLiteral("GetAll")) {
+          done(QVariant(), QStringLiteral("unavailable"));
+        }
+      });
+  const QString first = QStringLiteral("/org/bluez/hci0/dev_A");
+  const QString second = QStringLiteral("/org/bluez/hci0/dev_B");
+  c.bluezObjectAddedForTest(first, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("A")},
+                             {QStringLiteral("Connected"), true}});
+  c.bluezObjectAddedForTest(first + QStringLiteral("/player0"),
+                            QStringLiteral("org.bluez.MediaPlayer1"),
+                            {{QStringLiteral("Track"), QVariantMap{
+                                {QStringLiteral("Title"), QStringLiteral("First")}}}});
+  c.bluezObjectAddedForTest(second, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Alias"), QStringLiteral("B")},
+                             {QStringLiteral("Connected"), true}});
+  c.bluezObjectAddedForTest(second + QStringLiteral("/player0"),
+                            QStringLiteral("org.bluez.MediaPlayer1"),
+                            {{QStringLiteral("Status"), QStringLiteral("playing")},
+                             {QStringLiteral("Track"), QVariantMap{
+                                 {QStringLiteral("Title"), QStringLiteral("Second")},
+                                 {QStringLiteral("Duration"), 120000u}}}});
+  QCOMPARE(c.trackTitle(), QStringLiteral("First"));
+  c.resolveTakeover(BluetoothClient::SwitchToNew);
+  c.bluezPropertyChangedForTest(first, QStringLiteral("org.bluez.Device1"),
+                                {{QStringLiteral("Connected"), false}});
+  QCOMPARE(c.connectedDeviceName(), QStringLiteral("B"));
+  QCOMPARE(c.trackTitle(), QStringLiteral("Second"));
+  QCOMPARE(c.duration(), qint64(120000));
+  QVERIFY(c.statusPublished());
+  QVERIFY(c.isBluetoothPlaying());
+}
+
+void TestControllers::testBluetoothDeviceWithoutNameIsDetected() {
+  PlaybackController c;
+  c.switchToBluetooth();
+  c.bluetooth()->bluezObjectAddedForTest(
+      QStringLiteral("/org/bluez/hci0/dev_A"),
+      QStringLiteral("org.bluez.Device1"),
+      {{QStringLiteral("Connected"), true}});
+  QVERIFY(c.bluetooth()->hasConnectedDevice());
+  QCOMPARE(c.bluetooth()->connectedDeviceName(), QStringLiteral("Bluetooth device"));
+  QCOMPARE(c.playbackState(), PlaybackController::BluetoothActive);
+}
+
+void TestControllers::testBluetoothPlayerAddedBeforeDevice() {
+  BluetoothClient c;
+  const QString device = QStringLiteral("/org/bluez/hci0/dev_A");
+  c.bluezObjectAddedForTest(device + QStringLiteral("/player0"),
+                            QStringLiteral("org.bluez.MediaPlayer1"),
+                            {{QStringLiteral("Track"), QVariantMap{
+                                {QStringLiteral("Title"), QStringLiteral("Early")}}}});
+  c.bluezObjectAddedForTest(device, QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Connected"), true}});
+  QCOMPARE(c.trackTitle(), QStringLiteral("Early"));
+  QVERIFY(c.trackPublished());
+}
+
+void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties() {
+  QProcess daemon;
+  daemon.start(QStringLiteral("dbus-daemon"),
+               {QStringLiteral("--session"), QStringLiteral("--nofork"),
+                QStringLiteral("--print-address=1")});
+  QVERIFY(daemon.waitForStarted());
+  QVERIFY(daemon.waitForReadyRead(5000));
+  const QString address = QString::fromUtf8(daemon.readAllStandardOutput()).trimmed();
+  QVERIFY(!address.isEmpty());
+  const QString name = QStringLiteral("bluez-test-%1").arg(
+      QUuid::createUuid().toString(QUuid::WithoutBraces));
+  QDBusConnection bus = QDBusConnection::connectToBus(address, name);
+  QVERIFY(bus.isConnected());
+  QVERIFY(bus.registerService(QStringLiteral("org.bluez")));
+  MockBlueZObjects objects;
+  QVERIFY(bus.registerVirtualObject(QStringLiteral("/"), &objects));
+
+  {
+    BluetoothClient client(bus);
+    QTRY_COMPARE_WITH_TIMEOUT(client.connectedDeviceName(),
+                              QStringLiteral("Phone"), 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(client.trackTitle(),
+                              QStringLiteral("Initial Track"), 3000);
+    QCOMPARE(client.duration(), qint64(80000));
+    QVERIFY(client.adapterPowered());
+
+    const QString playerPath = QStringLiteral("/org/bluez/hci0/dev_A/player0");
+    QDBusMessage changed = QDBusMessage::createSignal(
+        playerPath, QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("PropertiesChanged"));
+    changed << QStringLiteral("org.bluez.MediaPlayer1")
+            << QVariantMap{{QStringLiteral("Position"), 12000u},
+                           {QStringLiteral("Track"),
+                            QVariantMap{{QStringLiteral("Title"),
+                                         QStringLiteral("Updated Track")},
+                                        {QStringLiteral("Duration"), 95000u}}}}
+            << QStringList();
+    QVERIFY(bus.send(changed));
+    QTRY_COMPARE_WITH_TIMEOUT(client.trackTitle(),
+                              QStringLiteral("Updated Track"), 3000);
+    QCOMPARE(client.duration(), qint64(95000));
+    QCOMPARE(client.position(), qint64(12000));
+
+    QDBusMessage invalidated = QDBusMessage::createSignal(
+        playerPath, QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("PropertiesChanged"));
+    invalidated << QStringLiteral("org.bluez.MediaPlayer1") << QVariantMap()
+                << QStringList{QStringLiteral("Track")};
+    QVERIFY(bus.send(invalidated));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.trackPublished(), 3000);
+
+    QDBusMessage disconnected = QDBusMessage::createSignal(
+        QStringLiteral("/org/bluez/hci0/dev_A"),
+        QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("PropertiesChanged"));
+    disconnected << QStringLiteral("org.bluez.Device1")
+                 << QVariantMap{{QStringLiteral("Connected"), false}}
+                 << QStringList();
+    QVERIFY(bus.send(disconnected));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.hasConnectedDevice(), 3000);
+
+    QVERIFY(bus.unregisterService(QStringLiteral("org.bluez")));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.adapterPowered(), 3000);
+    QVERIFY(bus.registerService(QStringLiteral("org.bluez")));
+    QTRY_COMPARE_WITH_TIMEOUT(client.connectedDeviceName(),
+                              QStringLiteral("Phone"), 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(client.trackTitle(),
+                              QStringLiteral("Initial Track"), 3000);
+  }
+
+  bus.unregisterObject(QStringLiteral("/"));
+  bus.unregisterService(QStringLiteral("org.bluez"));
+  QDBusConnection::disconnectFromBus(name);
+  daemon.terminate();
+  QVERIFY(daemon.waitForFinished(3000));
 }
 
 void TestControllers::testSpotifyClientDefaults() {

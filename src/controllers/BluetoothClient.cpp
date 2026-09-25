@@ -7,10 +7,12 @@
 #include <QDBusObjectPath>
 #include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
+#include <QDBusVariant>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QProcess>
+#include <QPointer>
 
 // Per-object PropertiesChanged receiver. QDBusConnection::connect has no
 // functor overload, and the signal carries its arguments but not the emitting
@@ -19,17 +21,19 @@ class BlueZPropsSubscriber : public QObject {
   Q_OBJECT
 public:
   explicit BlueZPropsSubscriber(
-      std::function<void(const QString &, const QVariantMap &)> cb)
+      std::function<void(const QString &, const QVariantMap &,
+                         const QStringList &)> cb)
       : m_cb(std::move(cb)) {}
 
 public slots:
   void onPropertiesChanged(const QString &interface, const QVariantMap &changed,
-                           const QStringList &) {
-    m_cb(interface, changed);
+                           const QStringList &invalidated) {
+    m_cb(interface, changed, invalidated);
   }
 
 private:
-  std::function<void(const QString &, const QVariantMap &)> m_cb;
+  std::function<void(const QString &, const QVariantMap &,
+                     const QStringList &)> m_cb;
 };
 
 namespace {
@@ -40,6 +44,8 @@ const QString kMediaPlayerInterface = QStringLiteral("org.bluez.MediaPlayer1");
 const QString kAdapterInterface = QStringLiteral("org.bluez.Adapter1");
 const QString kObjectManagerInterface =
     QStringLiteral("org.freedesktop.DBus.ObjectManager");
+const QString kPropertiesInterface =
+    QStringLiteral("org.freedesktop.DBus.Properties");
 const QString kPropertiesSignal = QStringLiteral("PropertiesChanged");
 
 const QString kConnectedProp = QStringLiteral("Connected");
@@ -55,10 +61,33 @@ const QString kStatusProp = QStringLiteral("Status");
 const QString kTrackProp = QStringLiteral("Track");
 const QString kPositionProp = QStringLiteral("Position");
 const QString kDurationKey = QStringLiteral("Duration");
+constexpr int kTakeoverDisconnectTimeoutMs = 5000;
+
+QVariant unwrapDbusVariant(const QVariant &value) {
+  if (value.canConvert<QDBusVariant>()) {
+    return value.value<QDBusVariant>().variant();
+  }
+  return value;
+}
+
+QVariantMap decodedProperties(const QVariant &value) {
+  const QVariant unwrapped = unwrapDbusVariant(value);
+  QVariantMap result = unwrapped.canConvert<QDBusArgument>()
+                           ? qdbus_cast<QVariantMap>(unwrapped.value<QDBusArgument>())
+                           : unwrapped.toMap();
+  for (auto it = result.begin(); it != result.end(); ++it) {
+    it.value() = unwrapDbusVariant(it.value());
+  }
+  return result;
+}
 } // namespace
 
-BluetoothClient::BluetoothClient(QObject *parent) : QObject(parent) {
-  m_dbusCall = [](const QString &service, const QString &objectPath,
+BluetoothClient::BluetoothClient(QObject *parent)
+    : BluetoothClient(QDBusConnection::systemBus(), parent) {}
+
+BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
+    : QObject(parent), m_bus(bus) {
+  m_dbusCall = [bus](const QString &service, const QString &objectPath,
                   const QString &interface, const QString &method,
                   const QVariantList &args,
                   const std::function<void(const QVariant &reply,
@@ -66,7 +95,7 @@ BluetoothClient::BluetoothClient(QObject *parent) : QObject(parent) {
     QDBusMessage msg =
         QDBusMessage::createMethodCall(service, objectPath, interface, method);
     msg.setArguments(args);
-    QDBusPendingCall pending = QDBusConnection::systemBus().asyncCall(msg);
+    QDBusPendingCall pending = bus.asyncCall(msg);
     auto *watcher = new QDBusPendingCallWatcher(pending);
     QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher,
                      [watcher, onFinished]() {
@@ -97,56 +126,135 @@ BluetoothClient::BluetoothClient(QObject *parent) : QObject(parent) {
     proc->start(args.value(0), args.mid(1));
   };
 
+  m_takeoverTimer.setSingleShot(true);
+  m_takeoverTimer.setInterval(kTakeoverDisconnectTimeoutMs);
+  connect(&m_takeoverTimer, &QTimer::timeout, this, [this]() {
+    finishTakeoverAttempt(
+        QStringLiteral("Bluetooth disconnect timed out — try again"));
+  });
+
   // Live object additions/removals while running. `org.bluez` implements the
   // standard DBus object-manager interface at `/`.
   qDBusRegisterMetaType<QMap<QString, QVariantMap>>();
-  QDBusConnection::systemBus().connect(
+  subscribeObjectManager();
+  m_serviceWatcher = new QDBusServiceWatcher(
+      kBlueZService, m_bus, QDBusServiceWatcher::WatchForOwnerChange, this);
+  connect(m_serviceWatcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+          [this](const QString &, const QString &, const QString &newOwner) {
+            clearBluezState();
+            if (!newOwner.isEmpty()) {
+              subscribeObjectManager();
+              refreshManagedObjects();
+            }
+          });
+  refreshManagedObjects();
+}
+
+void BluetoothClient::subscribeObjectManager() {
+  m_bus.disconnect(
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesAdded"), this,
       SLOT(onInterfacesAdded(QDBusObjectPath, QMap<QString, QVariantMap>)));
-  QDBusConnection::systemBus().connect(
+  m_bus.disconnect(
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesRemoved"), this,
       SLOT(onInterfacesRemoved(QDBusObjectPath, QStringList)));
+  m_bus.connect(
+      kBlueZService, kBlueZRoot, kObjectManagerInterface,
+      QStringLiteral("InterfacesAdded"), this,
+      SLOT(onInterfacesAdded(QDBusObjectPath, QMap<QString, QVariantMap>)));
+  m_bus.connect(
+      kBlueZService, kBlueZRoot, kObjectManagerInterface,
+      QStringLiteral("InterfacesRemoved"), this,
+      SLOT(onInterfacesRemoved(QDBusObjectPath, QStringList)));
+}
 
-  // Initial registry from the object-manager tree.
+void BluetoothClient::refreshManagedObjects() {
+  const quint64 generation = ++m_objectManagerGeneration;
+  QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, kBlueZRoot, kObjectManagerInterface,
-             QStringLiteral("GetManagedObjects"), QVariantList(),
-             [this](const QVariant &reply, const QString &) {
-               if (!reply.canConvert<QDBusArgument>()) {
-                 return;
-               }
-               const QDBusArgument arg = reply.value<QDBusArgument>();
-               // a{oa{sa{sv}}}: path -> { interface -> props }
-               arg.beginMap();
-               while (!arg.atEnd()) {
-                 QString path;
-                 QMap<QString, QVariantMap> interfaces;
-                 arg.beginMapEntry();
-                 arg >> path;
-                 arg >> interfaces;
-                 arg.endMapEntry();
-                 for (auto it = interfaces.cbegin(); it != interfaces.cend();
-                      ++it) {
-                   applyInterfaceAdded(path, it.key(), it.value());
-                 }
-               }
-               arg.endMap();
-             });
+              QStringLiteral("GetManagedObjects"), QVariantList(),
+              [self, generation](const QVariant &reply, const QString &error) {
+                if (!self || generation != self->m_objectManagerGeneration ||
+                    !error.isEmpty() || !reply.canConvert<QDBusArgument>()) {
+                  return;
+                }
+                const QDBusArgument arg = reply.value<QDBusArgument>();
+                // a{oa{sa{sv}}}: path -> { interface -> props }
+                QMap<QString, QVariantMap> players;
+                arg.beginMap();
+                while (!arg.atEnd()) {
+                  QDBusObjectPath path;
+                  QMap<QString, QVariantMap> interfaces;
+                  arg.beginMapEntry();
+                  arg >> path;
+                  arg >> interfaces;
+                  arg.endMapEntry();
+                  for (auto it = interfaces.cbegin(); it != interfaces.cend();
+                       ++it) {
+                    if (it.key() == kMediaPlayerInterface) {
+                      players.insert(path.path(), it.value());
+                    } else {
+                      self->applyInterfaceAdded(path.path(), it.key(), it.value());
+                    }
+                  }
+                }
+                arg.endMap();
+                for (auto it = players.cbegin(); it != players.cend(); ++it) {
+                  self->applyInterfaceAdded(it.key(), kMediaPlayerInterface,
+                                            it.value());
+                }
+              });
+}
+
+void BluetoothClient::clearBluezState() {
+  ++m_objectManagerGeneration;
+  for (const QString &path : m_propertySubscribers.keys()) {
+    unsubscribeProperties(path);
+  }
+  m_devices.clear();
+  m_connectedOrder.clear();
+  m_playerOwners.clear();
+  m_deferredPlayers.clear();
+  m_takeoverDevicePath.clear();
+  m_adapterPath.clear();
+  finishTakeoverAttempt();
+  setTakeoverPending(false);
+  updateTakeoverIncoming();
+  setActiveDevice(QString());
+  setAdapterPowered(false);
+  setAdapterDiscoverable(false);
+  setAdapterPairable(false);
 }
 
 QString BluetoothClient::connectedDeviceName() const {
   if (m_activeDevicePath.isEmpty()) {
     return QString();
   }
-  const DeviceState &device = m_devices.value(m_activeDevicePath);
-  return !device.alias.isEmpty() ? device.alias : device.name;
+  return deviceDisplayName(m_devices.value(m_activeDevicePath));
+}
+
+QString BluetoothClient::deviceDisplayName(const DeviceState &device) {
+  if (!device.alias.isEmpty()) {
+    return device.alias;
+  }
+  if (!device.name.isEmpty()) {
+    return device.name;
+  }
+  return device.address.isEmpty() ? QStringLiteral("Bluetooth device")
+                                  : device.address;
+}
+
+bool BluetoothClient::hasConnectedDevice() const {
+  return !m_activeDevicePath.isEmpty();
 }
 
 bool BluetoothClient::takeoverPending() const { return m_takeoverPending; }
 QString BluetoothClient::takeoverIncomingName() const {
   return m_takeoverIncomingName;
 }
+bool BluetoothClient::takeoverResolving() const { return m_takeoverResolving; }
+QString BluetoothClient::takeoverError() const { return m_takeoverError; }
 bool BluetoothClient::adapterPowered() const { return m_adapterPowered; }
 bool BluetoothClient::adapterDiscoverable() const {
   return m_adapterDiscoverable;
@@ -207,8 +315,8 @@ void BluetoothClient::bluezObjectRemovedForTest(const QString &objectPath,
 
 void BluetoothClient::bluezPropertyChangedForTest(
     const QString &objectPath, const QString &interface,
-    const QVariantMap &changedProps) {
-  applyPropertiesChanged(objectPath, interface, changedProps);
+    const QVariantMap &changedProps, const QStringList &invalidated) {
+  applyPropertiesChanged(objectPath, interface, changedProps, invalidated);
 }
 
 void BluetoothClient::setConnectedDeviceNameForTest(const QString &name) {
@@ -232,15 +340,36 @@ void BluetoothClient::setConnectedDeviceNameForTest(const QString &name) {
 }
 
 void BluetoothClient::subscribeProperties(const QString &path,
-                                          const QString &interface) {
+                                           const QString &interface) {
+  if (m_propertySubscribers.contains(path)) {
+    return;
+  }
   auto *subscriber = new BlueZPropsSubscriber(
-      [this, path, interface](const QString &iface, const QVariantMap &changed) {
-        applyPropertiesChanged(path, iface, changed);
+      [this, path, interface](const QString &iface, const QVariantMap &changed,
+                              const QStringList &invalidated) {
+        if (iface == interface) {
+          applyPropertiesChanged(path, iface, changed, invalidated);
+        }
       });
   subscriber->setParent(this);
-  QDBusConnection::systemBus().connect(
-      kBlueZService, path, interface, kPropertiesSignal, subscriber,
-      SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)));
+  if (m_bus.connect(kBlueZService, path, kPropertiesInterface,
+                    kPropertiesSignal, subscriber,
+                    SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)))) {
+    m_propertySubscribers.insert(path, subscriber);
+  } else {
+    subscriber->deleteLater();
+  }
+}
+
+void BluetoothClient::unsubscribeProperties(const QString &path) {
+  QObject *subscriber = m_propertySubscribers.take(path);
+  if (!subscriber) {
+    return;
+  }
+  m_bus.disconnect(kBlueZService, path, kPropertiesInterface, kPropertiesSignal,
+                   subscriber,
+                   SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)));
+  subscriber->deleteLater();
 }
 
 void BluetoothClient::onInterfacesAdded(
@@ -275,48 +404,83 @@ void BluetoothClient::applyInterfaceRemoved(const QString &path,
     onPlayerRemoved(path);
   } else if (interface == kDeviceInterface) {
     onDeviceRemoved(path);
+  } else if (interface == kAdapterInterface && m_adapterPath == path) {
+    unsubscribeProperties(path);
+    m_adapterPath.clear();
+    setAdapterPowered(false);
+    setAdapterDiscoverable(false);
+    setAdapterPairable(false);
   }
 }
 
 void BluetoothClient::applyPropertiesChanged(
-    const QString &path, const QString &interface, const QVariantMap &props) {
-  if (props.isEmpty()) {
+    const QString &path, const QString &interface, const QVariantMap &props,
+    const QStringList &invalidated) {
+  if (props.isEmpty() && invalidated.isEmpty()) {
     return;
   }
   if (interface == kDeviceInterface) {
     onDevicePropsChanged(path, props);
   } else if (interface == kMediaPlayerInterface) {
-    onPlayerPropsChanged(path, props);
+    const QString devicePath = m_playerOwners.value(path);
+    if (devicePath.isEmpty() || !m_devices.contains(devicePath) ||
+        m_devices.value(devicePath).playerPath != path) {
+      return;
+    }
+    DeviceState device = m_devices.value(devicePath);
+    for (const QString &key : invalidated) {
+      device.playerProperties.remove(key);
+    }
+    for (auto it = props.cbegin(); it != props.cend(); ++it) {
+      device.playerProperties.insert(it.key(), unwrapDbusVariant(it.value()));
+    }
+    m_devices.insert(devicePath, device);
+    if (devicePath == m_activeDevicePath) {
+      ++m_playerFetchGeneration;
+      resetAvrcp();
+      applyPlayerProps(device.playerProperties);
+    }
   } else if (interface == kAdapterInterface) {
     onAdapterPropsChanged(path, props);
   }
 }
 
 void BluetoothClient::onDeviceAdded(const QString &path,
-                                    const QVariantMap &props) {
+                                     const QVariantMap &props) {
   if (m_devices.contains(path)) {
     onDevicePropsChanged(path, props);
     return;
   }
   DeviceState d;
   d.path = path;
-  d.address = props.value(kAddressProp).toString();
-  d.name = props.value(kNameProp).toString();
-  d.alias = props.value(kAliasProp).toString();
-  d.connected = props.value(kConnectedProp).toBool();
+  d.address = unwrapDbusVariant(props.value(kAddressProp)).toString();
+  d.name = unwrapDbusVariant(props.value(kNameProp)).toString();
+  d.alias = unwrapDbusVariant(props.value(kAliasProp)).toString();
+  d.connected = unwrapDbusVariant(props.value(kConnectedProp)).toBool();
   m_devices.insert(path, d);
   if (d.connected) {
     m_connectedOrder.append(path);
     assertDeviceMute(d.address); // re-assert this device's mute against intent
   }
   if (m_adapterPath.isEmpty()) {
-    const QString adapter = props.value(kAdapterProp).toString();
+    const QString adapter = unwrapDbusVariant(props.value(kAdapterProp))
+                                .value<QDBusObjectPath>().path();
     if (!adapter.isEmpty()) {
       m_adapterPath = adapter;
     }
   }
   subscribeProperties(path, kDeviceInterface);
   recalculate();
+  for (auto it = m_deferredPlayers.begin(); it != m_deferredPlayers.end();) {
+    if (it.key().startsWith(path + QLatin1Char('/'))) {
+      const QString playerPath = it.key();
+      const QVariantMap playerProps = it.value();
+      it = m_deferredPlayers.erase(it);
+      onPlayerAdded(playerPath, playerProps);
+    } else {
+      ++it;
+    }
+  }
 }
 
 void BluetoothClient::onDevicePropsChanged(const QString &path,
@@ -325,20 +489,19 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
     return;
   }
   DeviceState device = m_devices.value(path);
-  const QString oldName =
-      !device.alias.isEmpty() ? device.alias : device.name;
+  const QString oldName = deviceDisplayName(device);
   if (props.contains(kAddressProp)) {
-    device.address = props.value(kAddressProp).toString();
+    device.address = unwrapDbusVariant(props.value(kAddressProp)).toString();
   }
   if (props.contains(kNameProp)) {
-    device.name = props.value(kNameProp).toString();
+    device.name = unwrapDbusVariant(props.value(kNameProp)).toString();
   }
   if (props.contains(kAliasProp)) {
-    device.alias = props.value(kAliasProp).toString();
+    device.alias = unwrapDbusVariant(props.value(kAliasProp)).toString();
   }
   if (props.contains(kConnectedProp)) {
     const bool wasConnected = device.connected;
-    const bool connected = props.value(kConnectedProp).toBool();
+    const bool connected = unwrapDbusVariant(props.value(kConnectedProp)).toBool();
     if (connected != wasConnected) {
       device.connected = connected;
       if (connected) {
@@ -347,19 +510,20 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
         }
       } else {
         m_connectedOrder.removeAll(path);
+        device.playerProperties.clear();
       }
     }
   }
   if (m_adapterPath.isEmpty() && props.contains(kAdapterProp)) {
-    m_adapterPath = props.value(kAdapterProp).toString();
+    m_adapterPath = unwrapDbusVariant(props.value(kAdapterProp))
+                        .value<QDBusObjectPath>().path();
   }
   m_devices.insert(path, device);
   if (device.connected) {
     assertDeviceMute(device.address);
   }
 
-  const bool nameChanged =
-      (!device.alias.isEmpty() ? device.alias : device.name) != oldName;
+  const bool nameChanged = deviceDisplayName(device) != oldName;
   const QString activeBefore = m_activeDevicePath;
   recalculate();
   // If the active device just switched, setActiveDevice already emitted.
@@ -370,10 +534,19 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
 }
 
 void BluetoothClient::onDeviceRemoved(const QString &path) {
+  unsubscribeProperties(path);
+  for (auto it = m_deferredPlayers.begin(); it != m_deferredPlayers.end();) {
+    if (it.key().startsWith(path + QLatin1Char('/'))) {
+      it = m_deferredPlayers.erase(it);
+    } else {
+      ++it;
+    }
+  }
   m_devices.remove(path);
   m_connectedOrder.removeAll(path);
   for (auto it = m_playerOwners.begin(); it != m_playerOwners.end();) {
     if (it.value() == path) {
+      unsubscribeProperties(it.key());
       it = m_playerOwners.erase(it);
     } else {
       ++it;
@@ -386,39 +559,45 @@ void BluetoothClient::onDeviceRemoved(const QString &path) {
 }
 
 void BluetoothClient::onPlayerAdded(const QString &path,
-                                    const QVariantMap &props) {
+                                     const QVariantMap &props) {
   const QString devicePath = parentDeviceOf(path);
   if (devicePath.isEmpty() || !m_devices.contains(devicePath)) {
+    m_deferredPlayers.insert(path, props);
     return;
   }
   m_playerOwners.insert(path, devicePath);
   DeviceState device = m_devices.value(devicePath);
+  if (!device.playerPath.isEmpty() && device.playerPath != path) {
+    unsubscribeProperties(device.playerPath);
+    m_playerOwners.remove(device.playerPath);
+  }
   device.playerPath = path;
+  device.playerProperties = props;
   m_devices.insert(devicePath, device);
   subscribeProperties(path, kMediaPlayerInterface);
   if (devicePath == m_activeDevicePath) {
-    applyPlayerProps(props); // seed AVRCP surface from initial player state
+    ++m_playerFetchGeneration;
+    resetAvrcp();
+    applyPlayerProps(device.playerProperties);
+    refreshActivePlayer();
   }
-}
-
-void BluetoothClient::onPlayerPropsChanged(const QString &path,
-                                           const QVariantMap &props) {
-  const QString devicePath = m_playerOwners.value(path);
-  if (devicePath.isEmpty() || devicePath != m_activeDevicePath) {
-    return;
-  }
-  applyPlayerProps(props);
 }
 
 void BluetoothClient::onPlayerRemoved(const QString &path) {
+  m_deferredPlayers.remove(path);
+  unsubscribeProperties(path);
   m_playerOwners.remove(path);
+  bool activePlayerRemoved = false;
   for (auto it = m_devices.begin(); it != m_devices.end(); ++it) {
     if (it->playerPath == path) {
+      activePlayerRemoved = it.key() == m_activeDevicePath;
       it->playerPath.clear();
+      it->playerProperties.clear();
+      ++m_playerFetchGeneration;
       break;
     }
   }
-  if (parentDeviceOf(path) == m_activeDevicePath) {
+  if (activePlayerRemoved) {
     resetAvrcp();
   }
 }
@@ -442,11 +621,11 @@ void BluetoothClient::onAdapterPropsChanged(const QString &,
 void BluetoothClient::applyPlayerProps(const QVariantMap &props) {
   if (props.contains(kStatusProp)) {
     setPlayerStatusPublished(true);
-    setPlayerPlaying(props.value(kStatusProp).toString() ==
-                     QStringLiteral("playing"));
+    setPlayerPlaying(unwrapDbusVariant(props.value(kStatusProp)).toString() ==
+                      QStringLiteral("playing"));
   }
   if (props.contains(kTrackProp)) {
-    const QVariantMap track = props.value(kTrackProp).toMap();
+    const QVariantMap track = decodedProperties(props.value(kTrackProp));
     if (track.isEmpty()) {
       setPlayerTrackPublished(false);
       setPlayerMetadata(QString(), QString(), QString(), 0);
@@ -460,19 +639,19 @@ void BluetoothClient::applyPlayerProps(const QVariantMap &props) {
   }
   if (props.contains(kPositionProp)) {
     setPlayerPositionPublished(true);
-    setPlayerPosition(qint64(props.value(kPositionProp).toUInt()));
+    setPlayerPosition(qint64(unwrapDbusVariant(props.value(kPositionProp)).toUInt()));
   }
 }
 
 void BluetoothClient::applyAdapterProps(const QVariantMap &props) {
   if (props.contains(kPoweredProp)) {
-    setAdapterPowered(props.value(kPoweredProp).toBool());
+    setAdapterPowered(unwrapDbusVariant(props.value(kPoweredProp)).toBool());
   }
   if (props.contains(kDiscoverableProp)) {
-    setAdapterDiscoverable(props.value(kDiscoverableProp).toBool());
+    setAdapterDiscoverable(unwrapDbusVariant(props.value(kDiscoverableProp)).toBool());
   }
   if (props.contains(kPairableProp)) {
-    setAdapterPairable(props.value(kPairableProp).toBool());
+    setAdapterPairable(unwrapDbusVariant(props.value(kPairableProp)).toBool());
   }
 }
 
@@ -495,6 +674,10 @@ QString BluetoothClient::parentDeviceOf(const QString &objectPath) const {
 }
 
 void BluetoothClient::recalculate() {
+  if (m_takeoverResolving && !m_devices.value(m_takeoverTargetPath).connected) {
+    finishTakeoverAttempt();
+  }
+
   QStringList connectedPaths;
   for (const QString &path : m_connectedOrder) {
     if (m_devices.value(path).connected) {
@@ -509,10 +692,12 @@ void BluetoothClient::recalculate() {
 
   if (connectedPaths.size() >= 2) {
     if (!m_takeoverPending) {
+      setTakeoverError(QString());
       setTakeoverPending(true);
     }
     m_takeoverDevicePath = connectedPaths.last();
   } else {
+    setTakeoverError(QString());
     if (m_takeoverPending) {
       setTakeoverPending(false);
     }
@@ -526,46 +711,109 @@ void BluetoothClient::setActiveDevice(const QString &path) {
     return;
   }
   m_activeDevicePath = path;
+  ++m_playerFetchGeneration;
   resetAvrcp();
+  const DeviceState device = m_devices.value(path);
+  if (!device.playerPath.isEmpty()) {
+    applyPlayerProps(device.playerProperties);
+    refreshActivePlayer();
+  }
   emit connectedDeviceNameChanged();
 }
 
-void BluetoothClient::disconnectDevice(const QString &path) {
-  if (path.isEmpty()) {
+void BluetoothClient::refreshActivePlayer() {
+  const QString devicePath = m_activeDevicePath;
+  const QString playerPath = m_devices.value(devicePath).playerPath;
+  if (playerPath.isEmpty()) {
     return;
   }
-  m_dbusCall(kBlueZService, path, kDeviceInterface, QStringLiteral("Disconnect"),
-             QVariantList(), [](const QVariant &, const QString &) {});
+  const quint64 generation = ++m_playerFetchGeneration;
+  QPointer<BluetoothClient> self(this);
+  m_dbusCall(kBlueZService, playerPath, kPropertiesInterface,
+             QStringLiteral("GetAll"), QVariantList{kMediaPlayerInterface},
+             [self, devicePath, playerPath, generation](
+                 const QVariant &reply, const QString &error) {
+               if (!self || !error.isEmpty() || !reply.isValid() ||
+                   generation != self->m_playerFetchGeneration ||
+                   self->m_activeDevicePath != devicePath ||
+                   self->m_devices.value(devicePath).playerPath != playerPath) {
+                 return;
+               }
+               DeviceState device = self->m_devices.value(devicePath);
+               device.playerProperties = decodedProperties(reply);
+               self->m_devices.insert(devicePath, device);
+               self->resetAvrcp();
+               self->applyPlayerProps(device.playerProperties);
+             });
 }
 
 void BluetoothClient::resolveTakeover(TakeoverChoice choice) {
-  if (!m_takeoverPending) {
+  if (!m_takeoverPending || m_takeoverResolving) {
     return;
   }
-  const QString incoming = m_takeoverDevicePath;
-  setTakeoverPending(false);
-  m_takeoverDevicePath.clear();
-  updateTakeoverIncoming();
-  if (choice == KeepCurrent) {
-    // Keep the active device; kick the new one.
-    disconnectDevice(incoming);
-  } else {
-    // Switch to the new device: make it active, then kick the old one.
-    const QString oldActive = m_activeDevicePath;
-    if (!incoming.isEmpty()) {
-      setActiveDevice(incoming);
-    }
-    disconnectDevice(oldActive);
+  const QString target = choice == KeepCurrent ? m_takeoverDevicePath
+                                               : m_activeDevicePath;
+  if (target.isEmpty() || !m_devices.value(target).connected) {
+    recalculate();
+    return;
   }
+
+  m_takeoverTargetPath = target;
+  setTakeoverError(QString());
+  setTakeoverResolving(true);
+  const quint64 attempt = ++m_takeoverAttempt;
+  m_takeoverTimer.start();
+
+  QPointer<BluetoothClient> self(this);
+  m_dbusCall(kBlueZService, target, kDeviceInterface,
+             QStringLiteral("Disconnect"), QVariantList(),
+             [self, target, attempt](const QVariant &, const QString &error) {
+               if (!self || !self->m_takeoverResolving ||
+                   self->m_takeoverAttempt != attempt ||
+                   self->m_takeoverTargetPath != target) {
+                 return;
+               }
+               if (!error.isEmpty()) {
+                 self->finishTakeoverAttempt(QStringLiteral(
+                                                 "Bluetooth disconnect failed — %1")
+                                                 .arg(error));
+               }
+               // A successful method reply is not proof of disconnection;
+               // wait for Device1.Connected=false or InterfacesRemoved.
+             });
+}
+
+void BluetoothClient::finishTakeoverAttempt(const QString &error) {
+  m_takeoverTimer.stop();
+  m_takeoverTargetPath.clear();
+  setTakeoverResolving(false);
+  setTakeoverError(error);
+}
+
+void BluetoothClient::setTakeoverResolving(bool resolving) {
+  if (m_takeoverResolving == resolving) {
+    return;
+  }
+  m_takeoverResolving = resolving;
+  emit takeoverResolvingChanged();
+}
+
+void BluetoothClient::setTakeoverError(const QString &error) {
+  if (m_takeoverError == error) {
+    return;
+  }
+  m_takeoverError = error;
+  emit takeoverErrorChanged();
 }
 
 void BluetoothClient::ensureDiscoverable() {
   if (m_adapterPath.isEmpty()) {
     return;
   }
-  m_dbusCall(kBlueZService, m_adapterPath, kAdapterInterface,
-             QStringLiteral("Set"),
-             QVariantList{QStringLiteral("Discoverable"), QVariant(true)},
+  m_dbusCall(kBlueZService, m_adapterPath, kPropertiesInterface,
+              QStringLiteral("Set"),
+              QVariantList{kAdapterInterface, kDiscoverableProp,
+                           QVariant::fromValue(QDBusVariant(true))},
              [](const QVariant &, const QString &) {});
 }
 
@@ -635,17 +883,22 @@ void BluetoothClient::setMuted(bool muted) {
 }
 
 void BluetoothClient::setNodeMuted(const QString &address, bool muted) {
+  QPointer<BluetoothClient> self(this);
   m_runner(QStringList{QStringLiteral("pw-dump")},
-           [this, muted, address](const QByteArray &output) {
+           [self, muted, address](const QByteArray &output) {
+             if (!self) {
+               return;
+             }
              const int nodeId = bluetoothNodeIdFromPwDump(output, address);
              if (nodeId < 0) {
                return;
              }
-             m_runner(QStringList{QStringLiteral("wpctl"),
-                                  QStringLiteral("set-mute"),
-                                  QString::number(nodeId),
-                                  muted ? QStringLiteral("1") : QStringLiteral("0")},
-                      [](const QByteArray &) {});
+             self->m_runner(QStringList{QStringLiteral("wpctl"),
+                                        QStringLiteral("set-mute"),
+                                        QString::number(nodeId),
+                                        muted ? QStringLiteral("1")
+                                              : QStringLiteral("0")},
+                            [](const QByteArray &) {});
            });
 }
 
@@ -666,8 +919,7 @@ void BluetoothClient::pauseAll() {
 void BluetoothClient::updateTakeoverIncoming() {
   QString name;
   if (!m_takeoverDevicePath.isEmpty()) {
-    const DeviceState &device = m_devices.value(m_takeoverDevicePath);
-    name = !device.alias.isEmpty() ? device.alias : device.name;
+    name = deviceDisplayName(m_devices.value(m_takeoverDevicePath));
   }
   setTakeoverIncomingName(name);
 }

@@ -16,8 +16,10 @@ Popup {
     property string password: ""
 
     onOpened: {
-        root.selectedSsid = ""
-        root.password = ""
+        if (!WifiController.connecting) {
+            root.selectedSsid = ""
+            root.password = ""
+        }
         WifiController.scan()
     }
 
@@ -70,6 +72,14 @@ Popup {
             Layout.fillWidth: true
         }
 
+        Label {
+            text: "Connecting to " + root.selectedSsid + "…"
+            visible: WifiController.connecting
+            color: Theme.secondaryTextColor
+            font.pixelSize: Theme.fontSizeSmall
+            Layout.fillWidth: true
+        }
+
         ListView {
             id: ssidList
             Layout.fillWidth: true
@@ -78,6 +88,7 @@ Popup {
             model: WifiController.networks
             delegate: ItemDelegate {
                 required property var modelData
+                enabled: !WifiController.connecting
                 width: ssidList.width
                 height: Theme.touchTarget
                 highlighted: root.selectedSsid === modelData.ssid
@@ -110,7 +121,7 @@ Popup {
                 onClicked: {
                     root.selectedSsid = modelData.ssid
                     root.password = ""
-                    if (!modelData.secured) {
+                    if (!modelData.secured && !WifiController.connecting) {
                         root.connectSelected()
                     }
                 }
@@ -140,7 +151,7 @@ Popup {
             Item { Layout.fillWidth: true }
             Button {
                 text: "Connect"
-                enabled: root.selectedSsid !== ""
+                enabled: root.selectedSsid !== "" && !WifiController.connecting
                 Layout.preferredHeight: Theme.touchTarget
                 onClicked: root.connectSelected()
             }
@@ -149,8 +160,8 @@ Popup {
 
     Connections {
         target: WifiController
-        function onConnectedChanged() {
-            if (WifiController.connected) {
+        function onConnectionSucceeded(ssid) {
+            if (root.visible && ssid === root.selectedSsid) {
                 root.close()
             }
         }

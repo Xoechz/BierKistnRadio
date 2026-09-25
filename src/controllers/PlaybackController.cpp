@@ -88,7 +88,7 @@ void PlaybackController::switchToBluetooth() {
   m_bluetooth->setMuted(false);
 
   if (m_playbackState == BluetoothActive ||
-      !m_bluetooth->connectedDeviceName().isEmpty()) {
+      m_bluetooth->hasConnectedDevice()) {
     setPlaybackState(BluetoothActive);
   } else {
     setPlaybackState(BluetoothWaiting);
@@ -114,7 +114,7 @@ void PlaybackController::onSpotifyChanged() {
 }
 
 void PlaybackController::onBluetoothChanged() {
-  bool connected = !m_bluetooth->connectedDeviceName().isEmpty();
+  bool connected = m_bluetooth->hasConnectedDevice();
 
   if (connected) {
     onBluetoothConnected();
@@ -144,7 +144,7 @@ void PlaybackController::onBluetoothDisconnected() {
   // stay BluetoothActive; otherwise drop to BluetoothWaiting. Never touch
   // the Spotify state on a BT disconnect — source switching is explicit.
   if (m_playbackState == BluetoothActive) {
-    bool stillConnected = !m_bluetooth->connectedDeviceName().isEmpty();
+    bool stillConnected = m_bluetooth->hasConnectedDevice();
     setPlaybackState(stillConnected ? BluetoothActive : BluetoothWaiting);
   }
 }
