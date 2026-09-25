@@ -15,7 +15,7 @@ TestCase {
 
     function test_colorsDark() {
         Theme.darkMode = true
-        compare(Theme.backgroundColor, "#121212")
+        compare(Theme.backgroundColor, "#151515")
         compare(Theme.surfaceColor, "#1e1e1e")
     }
 
