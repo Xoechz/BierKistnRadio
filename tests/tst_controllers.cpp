@@ -18,6 +18,7 @@
 #include <QImage>
 #include <QNetworkAccessManager>
 #include <QProcess>
+#include <QScopeGuard>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -67,6 +68,127 @@ public:
   }
 };
 
+class MockMprisPlayer : public QDBusVirtualObject {
+public:
+  QList<QDBusMessage> calls;
+  QVariantMap metadata{{QStringLiteral("xesam:title"), QStringLiteral("Initial Track")},
+                       {QStringLiteral("xesam:artist"),
+                        QStringList{QStringLiteral("First Artist"),
+                                    QStringLiteral("Guest")}},
+                       {QStringLiteral("xesam:album"), QStringLiteral("First Album")},
+                       {QStringLiteral("mpris:artUrl"),
+                        QStringLiteral("https://example.org/first.jpg")},
+                       {QStringLiteral("mpris:length"), qint64(190000000)},
+                       {QStringLiteral("mpris:trackid"),
+                        QVariant::fromValue(QDBusObjectPath(
+                            QStringLiteral("/org/mpris/MediaPlayer2/Track/1")))}};
+
+  QString introspect(const QString &) const override {
+    return QStringLiteral("<interface name=\"org.freedesktop.DBus.Properties\">"
+                          "<method name=\"GetAll\"><arg direction=\"in\" type=\"s\"/>"
+                          "<arg direction=\"out\" type=\"a{sv}\"/></method>"
+                          "<signal name=\"PropertiesChanged\">"
+                          "<arg type=\"s\"/><arg type=\"a{sv}\"/><arg type=\"as\"/>"
+                          "</signal></interface>"
+                          "<interface name=\"org.mpris.MediaPlayer2.Player\">"
+                          "<method name=\"Play\"/><method name=\"Pause\"/>"
+                          "<method name=\"Next\"/><method name=\"Previous\"/>"
+                          "<method name=\"SetPosition\"><arg direction=\"in\" type=\"o\"/>"
+                          "<arg direction=\"in\" type=\"x\"/></method></interface>");
+  }
+
+  bool handleMessage(const QDBusMessage &message,
+                     const QDBusConnection &connection) override {
+    if (message.member() == QStringLiteral("GetAll")) {
+      connection.send(message.createReply(QVariantMap{
+          {QStringLiteral("PlaybackStatus"), QStringLiteral("Playing")},
+          {QStringLiteral("Metadata"), metadata},
+          {QStringLiteral("Position"), qint64(5000000)}}));
+      return true;
+    }
+    calls.append(message);
+    connection.send(message.createReply());
+    return true;
+  }
+};
+
+class MockNetworkManager : public QDBusVirtualObject {
+public:
+  bool scanRequested = false;
+  bool activationRequested = false;
+  QVariantList activationArgs;
+
+  QString introspect(const QString &) const override {
+    return QStringLiteral("<interface name=\"org.freedesktop.NetworkManager\">"
+                          "<method name=\"GetDevices\"><arg direction=\"out\" type=\"ao\"/>"
+                          "</method><method name=\"AddAndActivateConnection\">"
+                          "<arg direction=\"in\" type=\"a{sa{sv}}\"/>"
+                          "<arg direction=\"in\" type=\"o\"/>"
+                          "<arg direction=\"in\" type=\"o\"/>"
+                          "<arg direction=\"out\" type=\"o\"/>"
+                          "<arg direction=\"out\" type=\"o\"/></method></interface>"
+                          "<interface name=\"org.freedesktop.NetworkManager.Device.Wireless\">"
+                          "<method name=\"GetAllAccessPoints\">"
+                          "<arg direction=\"out\" type=\"ao\"/></method>"
+                          "<method name=\"RequestScan\"><arg direction=\"in\" "
+                          "type=\"a{sv}\"/></method></interface>"
+                          "<interface name=\"org.freedesktop.DBus.Properties\">"
+                          "<method name=\"Get\"><arg direction=\"in\" type=\"s\"/>"
+                          "<arg direction=\"in\" type=\"s\"/>"
+                          "<arg direction=\"out\" type=\"v\"/></method>"
+                          "<method name=\"GetAll\"><arg direction=\"in\" type=\"s\"/>"
+                          "<arg direction=\"out\" type=\"a{sv}\"/></method>"
+                          "</interface>");
+  }
+
+  bool handleMessage(const QDBusMessage &message,
+                     const QDBusConnection &connection) override {
+    const QString method = message.member();
+    if (method == QStringLiteral("GetDevices") ||
+        method == QStringLiteral("GetAllAccessPoints")) {
+      const QString path = method == QStringLiteral("GetDevices")
+                               ? QStringLiteral("/org/freedesktop/NetworkManager/Devices/1")
+                               : QStringLiteral("/org/freedesktop/NetworkManager/AccessPoint/1");
+      QDBusArgument array;
+      array.beginArray(QMetaType::fromType<QDBusObjectPath>());
+      array << QDBusObjectPath(path);
+      array.endArray();
+      connection.send(message.createReply(QVariant::fromValue(array)));
+    } else if (method == QStringLiteral("Get")) {
+      const QString prop = message.arguments().value(1).toString();
+      QVariant value;
+      if (prop == QStringLiteral("DeviceType")) {
+        value = QVariant(2u);
+      } else if (prop == QStringLiteral("State")) {
+        value = QVariant(30u);
+      } else if (prop == QStringLiteral("ActiveAccessPoint")) {
+        value = QVariant::fromValue(QDBusObjectPath(
+            QStringLiteral("/org/freedesktop/NetworkManager/AccessPoint/1")));
+      }
+      connection.send(message.createReply(
+          QVariant::fromValue(QDBusVariant(value))));
+    } else if (method == QStringLiteral("GetAll")) {
+      connection.send(message.createReply(QVariantMap{
+          {QStringLiteral("Ssid"), QByteArray("PrivateWifi")},
+          {QStringLiteral("Strength"), QVariant::fromValue(uchar(71))},
+          {QStringLiteral("RsnFlags"), QVariant(8u)}}));
+    } else if (method == QStringLiteral("RequestScan")) {
+      scanRequested = true;
+      connection.send(message.createReply());
+    } else if (method == QStringLiteral("AddAndActivateConnection")) {
+      activationRequested = true;
+      activationArgs = message.arguments();
+      connection.send(message.createReply(QVariantList{
+          QVariant::fromValue(QDBusObjectPath(QStringLiteral("/org/freedesktop/NetworkManager/Settings/1"))),
+          QVariant::fromValue(QDBusObjectPath(QStringLiteral("/org/freedesktop/NetworkManager/ActiveConnection/1")))}));
+    } else {
+      connection.send(message.createErrorReply(QStringLiteral("org.freedesktop.DBus.Error.UnknownMethod"),
+                                               QStringLiteral("Unknown mock method")));
+    }
+    return true;
+  }
+};
+
 class TestControllers : public QObject {
   Q_OBJECT
 
@@ -87,6 +209,7 @@ private slots:
   void testWifiControllerListsExistingAccessPoints();
   void testWifiControllerScanError();
   void testWifiControllerActivationResult();
+  void testWifiPrivateBusScanAndActivation();
   void testBluetoothClientDefaults();
   void testBluetoothTracksConnectedDevices();
   void testBluetoothTakeoverDetection();
@@ -114,6 +237,7 @@ private slots:
   void testBluetoothPrivateBusObjectManagerAndProperties();
   void testSpotifyClientDefaults();
   void testSpotifyFirstArtistFromMetadata();
+  void testSpotifyPrivateBusMprisLifecycle();
   void testVolumeControllerDefaults();
   void testVolumeControllerParse();
   void testVolumeControllerReadsFromWpctl();
@@ -651,6 +775,77 @@ void TestControllers::testWifiControllerActivationResult() {
   QCOMPARE(succeeded.count(), 1);
   QVERIFY(c.errorMessage().contains(QStringLiteral("reason 7")));
   QCOMPARE(c.connecting(), false);
+}
+
+void TestControllers::testWifiPrivateBusScanAndActivation() {
+  QProcess daemon;
+  daemon.start(QStringLiteral("dbus-daemon"),
+               {QStringLiteral("--session"), QStringLiteral("--nofork"),
+                QStringLiteral("--print-address=1")});
+  QVERIFY(daemon.waitForStarted());
+  QVERIFY(daemon.waitForReadyRead(5000));
+  const QString address = QString::fromUtf8(daemon.readAllStandardOutput()).trimmed();
+  QVERIFY(!address.isEmpty());
+  const QString name = QStringLiteral("nm-test-%1").arg(
+      QUuid::createUuid().toString(QUuid::WithoutBraces));
+  QDBusConnection bus = QDBusConnection::connectToBus(address, name);
+  const auto cleanup = qScopeGuard([&]() {
+    QDBusConnection::disconnectFromBus(name);
+    daemon.terminate();
+    daemon.waitForFinished(3000);
+  });
+  QVERIFY(bus.isConnected());
+  QVERIFY(bus.registerService(QStringLiteral("org.freedesktop.NetworkManager")));
+  MockNetworkManager manager;
+  const QString nmPath = QStringLiteral("/org/freedesktop/NetworkManager");
+  QVERIFY(bus.registerVirtualObject(nmPath, &manager, QDBusConnection::SubPath));
+
+  {
+    WifiController wifi(bus);
+    QSignalSpy networksChanged(&wifi, &WifiController::networksChanged);
+    QSignalSpy succeeded(&wifi, &WifiController::connectionSucceeded);
+    QTRY_COMPARE_WITH_TIMEOUT(wifi.networks().size(), 1, 3000);
+    QVERIFY(manager.scanRequested);
+    QVERIFY(networksChanged.size() >= 1);
+    const QVariantMap network = wifi.networks().first().toMap();
+    QCOMPARE(network.value(QStringLiteral("ssid")).toString(),
+             QStringLiteral("PrivateWifi"));
+    QCOMPARE(network.value(QStringLiteral("signalStrength")).toInt(), 71);
+    QVERIFY(network.value(QStringLiteral("secured")).toBool());
+
+    wifi.connect(QStringLiteral("PrivateWifi"), QStringLiteral("test-password"));
+    QTRY_VERIFY_WITH_TIMEOUT(manager.activationRequested, 3000);
+    QCOMPARE(manager.activationArgs.size(), 3);
+    QVERIFY(manager.activationArgs.at(0).canConvert<QDBusArgument>());
+    const auto profile = qdbus_cast<WifiController::SettingsMap>(
+        manager.activationArgs.at(0).value<QDBusArgument>());
+    QCOMPARE(profile.value(QStringLiteral("802-11-wireless"))
+                 .value(QStringLiteral("ssid")).toByteArray(),
+             QByteArray("PrivateWifi"));
+    QCOMPARE(profile.value(QStringLiteral("802-11-wireless-security"))
+                 .value(QStringLiteral("psk")).toString(),
+             QStringLiteral("test-password"));
+    QCOMPARE(manager.activationArgs.at(1).value<QDBusObjectPath>().path(),
+             QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"));
+    QCOMPARE(manager.activationArgs.at(2).value<QDBusObjectPath>().path(),
+             QStringLiteral("/org/freedesktop/NetworkManager/AccessPoint/1"));
+    QVERIFY(wifi.connecting());
+    QCOMPARE(succeeded.size(), 0); // method reply alone is not activation
+
+    QDBusMessage activated = QDBusMessage::createSignal(
+        QStringLiteral("/org/freedesktop/NetworkManager/Devices/1"),
+        QStringLiteral("org.freedesktop.NetworkManager.Device"),
+        QStringLiteral("StateChanged"));
+    activated << uint(100) << uint(30) << uint(0);
+    QVERIFY(bus.send(activated));
+    QTRY_COMPARE_WITH_TIMEOUT(succeeded.size(), 1, 3000);
+    QVERIFY(wifi.connected());
+    QVERIFY(!wifi.connecting());
+    QCOMPARE(wifi.ssid(), QStringLiteral("PrivateWifi"));
+    QCOMPARE(wifi.signalStrength(), 71);
+  }
+  bus.unregisterObject(nmPath);
+  bus.unregisterService(QStringLiteral("org.freedesktop.NetworkManager"));
 }
 
 void TestControllers::testBluetoothClientDefaults() {
@@ -1426,6 +1621,107 @@ void TestControllers::testSpotifyFirstArtistFromMetadata() {
   QCOMPARE(client.artist(), QStringLiteral("AC/DC, Guest"));
   QCOMPARE(client.firstArtist(), QStringLiteral("AC/DC"));
   QCOMPARE(changed.size(), 1);
+}
+
+void TestControllers::testSpotifyPrivateBusMprisLifecycle() {
+  QProcess daemon;
+  daemon.start(QStringLiteral("dbus-daemon"),
+               {QStringLiteral("--session"), QStringLiteral("--nofork"),
+                QStringLiteral("--print-address=1")});
+  QVERIFY(daemon.waitForStarted());
+  QVERIFY(daemon.waitForReadyRead(5000));
+  const QString address = QString::fromUtf8(daemon.readAllStandardOutput()).trimmed();
+  QVERIFY(!address.isEmpty());
+  const QString connectionName = QStringLiteral("mpris-test-%1").arg(
+      QUuid::createUuid().toString(QUuid::WithoutBraces));
+  QDBusConnection bus = QDBusConnection::connectToBus(address, connectionName);
+  const auto cleanup = qScopeGuard([&]() {
+    QDBusConnection::disconnectFromBus(connectionName);
+    daemon.terminate();
+    daemon.waitForFinished(3000);
+  });
+  QVERIFY(bus.isConnected());
+  const QString service = QStringLiteral("org.mpris.MediaPlayer2.spotifyd.instance1234");
+  QVERIFY(bus.registerService(service));
+  MockMprisPlayer player;
+  const QString path = QStringLiteral("/org/mpris/MediaPlayer2");
+  QVERIFY(bus.registerVirtualObject(path, &player));
+
+  {
+    SpotifyClient client(bus);
+    QSignalSpy available(&client, &SpotifyClient::availableChanged);
+    QSignalSpy titleChanged(&client, &SpotifyClient::titleChanged);
+    QTRY_VERIFY_WITH_TIMEOUT(client.isAvailable(), 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(client.title(), QStringLiteral("Initial Track"), 3000);
+    QCOMPARE(client.artist(), QStringLiteral("First Artist, Guest"));
+    QCOMPARE(client.firstArtist(), QStringLiteral("First Artist"));
+    QCOMPARE(client.album(), QStringLiteral("First Album"));
+    QCOMPARE(client.artUrl(), QStringLiteral("https://example.org/first.jpg"));
+    QCOMPARE(client.duration(), qint64(190000));
+    QCOMPARE(client.position(), qint64(5000));
+    QVERIFY(client.hasTrack());
+    QVERIFY(client.isSpotifyPlaying());
+    QCOMPARE(available.size(), 1);
+    QCOMPARE(titleChanged.size(), 1);
+
+    client.pause();
+    client.play();
+    client.next();
+    client.previous();
+    client.seek(12000);
+    QTRY_COMPARE_WITH_TIMEOUT(player.calls.size(), 5, 3000);
+    QCOMPARE(player.calls.at(0).member(), QStringLiteral("Pause"));
+    QCOMPARE(player.calls.at(1).member(), QStringLiteral("Play"));
+    QCOMPARE(player.calls.at(2).member(), QStringLiteral("Next"));
+    QCOMPARE(player.calls.at(3).member(), QStringLiteral("Previous"));
+    QCOMPARE(player.calls.at(4).member(), QStringLiteral("SetPosition"));
+    QCOMPARE(player.calls.at(4).arguments().at(0).value<QDBusObjectPath>().path(),
+             QStringLiteral("/org/mpris/MediaPlayer2/Track/1"));
+    QCOMPARE(player.calls.at(4).arguments().at(1).toLongLong(), qint64(12000000));
+
+    QDBusMessage changed = QDBusMessage::createSignal(
+        path, QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("PropertiesChanged"));
+    changed << QStringLiteral("org.mpris.MediaPlayer2.Player")
+            << QVariantMap{{QStringLiteral("PlaybackStatus"), QStringLiteral("Paused")},
+                           {QStringLiteral("Position"), qint64(9000000)}}
+            << QStringList();
+    QVERIFY(bus.send(changed));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.isSpotifyPlaying(), 3000);
+    QCOMPARE(client.position(), qint64(9000));
+
+    player.metadata[QStringLiteral("xesam:title")] = QStringLiteral("Next Track");
+    player.metadata[QStringLiteral("xesam:artist")] =
+        QStringList{QStringLiteral("New Artist"), QStringLiteral("Guest")};
+    QDBusMessage trackChanged = QDBusMessage::createSignal(
+        path, QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("PropertiesChanged"));
+    trackChanged << QStringLiteral("org.mpris.MediaPlayer2.Player")
+                 << QVariantMap{{QStringLiteral("Metadata"), player.metadata}}
+                 << QStringList();
+    QVERIFY(bus.send(trackChanged));
+    QTRY_COMPARE_WITH_TIMEOUT(client.title(), QStringLiteral("Next Track"), 3000);
+    QCOMPARE(client.firstArtist(), QStringLiteral("New Artist"));
+    QCOMPARE(titleChanged.size(), 2);
+
+    QVERIFY(bus.unregisterService(service));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.hasTrack(), 3000);
+    QVERIFY(!client.isAvailable());
+    QVERIFY(bus.registerService(service));
+    QTRY_VERIFY_WITH_TIMEOUT(client.hasTrack(), 3000);
+    QVERIFY(client.isAvailable());
+
+    QVERIFY(bus.unregisterService(service));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.isAvailable(), 3000);
+    const QString daemonName = QStringLiteral("rs.spotifyd.instance1234");
+    QVERIFY(bus.registerService(daemonName));
+    QTRY_VERIFY_WITH_TIMEOUT(client.isAvailable(), 6000);
+    QVERIFY(!client.hasTrack()); // spotifyd without a phone is a waiting state
+    QVERIFY(bus.unregisterService(daemonName));
+  }
+
+  bus.unregisterObject(path);
+  bus.unregisterService(service);
 }
 
 void TestControllers::testVolumeControllerDefaults() {

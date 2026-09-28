@@ -78,14 +78,18 @@ QVariantMap properties(const QVariant &reply) {
 }
 } // namespace
 
-WifiController::WifiController(QObject *parent) : QObject(parent) {
+WifiController::WifiController(QObject *parent)
+    : WifiController(QDBusConnection::systemBus(), parent) {}
+
+WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
+    : QObject(parent), m_bus(bus) {
   qDBusRegisterMetaType<SettingsMap>();
   m_connectTimer.setSingleShot(true);
   m_connectTimer.setInterval(kConnectionTimeoutMs);
   QObject::connect(&m_connectTimer, &QTimer::timeout, this, [this]() {
     failConnection(QStringLiteral("Wi-Fi connection timed out"));
   });
-  m_dbusCall = [](const QString &service, const QString &objectPath,
+  m_dbusCall = [this](const QString &service, const QString &objectPath,
                   const QString &interface, const QString &method,
                   const QVariantList &args,
                   const std::function<void(const QVariant &reply,
@@ -93,7 +97,7 @@ WifiController::WifiController(QObject *parent) : QObject(parent) {
     QDBusMessage msg =
         QDBusMessage::createMethodCall(service, objectPath, interface, method);
     msg.setArguments(args);
-    QDBusPendingCall pending = QDBusConnection::systemBus().asyncCall(msg);
+    QDBusPendingCall pending = m_bus.asyncCall(msg);
     auto *watcher = new QDBusPendingCallWatcher(pending);
     QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher,
                       [watcher, onFinished]() {
@@ -115,7 +119,7 @@ WifiController::WifiController(QObject *parent) : QObject(parent) {
                      });
   };
 
-  QDBusConnection::systemBus().connect(
+  m_bus.connect(
       kNetworkManagerService, kNetworkManagerPath, kPropertiesInterface,
       kPropertiesChangedSignal, this,
       SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)));
@@ -267,36 +271,36 @@ void WifiController::setWifiDevicePath(const QString &path) {
     return;
   }
   if (!m_wifiDevicePath.isEmpty()) {
-    QDBusConnection::systemBus().disconnect(kNetworkManagerService, m_wifiDevicePath,
+    m_bus.disconnect(kNetworkManagerService, m_wifiDevicePath,
         kWirelessInterface, QStringLiteral("AccessPointAdded"), this,
         SLOT(onAccessPointAdded(QDBusObjectPath)));
-    QDBusConnection::systemBus().disconnect(kNetworkManagerService, m_wifiDevicePath,
+    m_bus.disconnect(kNetworkManagerService, m_wifiDevicePath,
         kWirelessInterface, QStringLiteral("AccessPointRemoved"), this,
         SLOT(onAccessPointRemoved(QDBusObjectPath)));
-    QDBusConnection::systemBus().disconnect(kNetworkManagerService, m_wifiDevicePath,
+    m_bus.disconnect(kNetworkManagerService, m_wifiDevicePath,
         kPropertiesInterface, kPropertiesChangedSignal, this,
         SLOT(onWifiPropertiesChanged(QString, QVariantMap, QStringList)));
-    QDBusConnection::systemBus().disconnect(kNetworkManagerService, m_wifiDevicePath,
+    m_bus.disconnect(kNetworkManagerService, m_wifiDevicePath,
         kDeviceInterface, QStringLiteral("StateChanged"), this,
         SLOT(onWifiDeviceStateChanged(uint, uint, uint)));
   }
   m_wifiDevicePath = path;
   subscribeAccessPoints(path);
-  QDBusConnection::systemBus().connect(kNetworkManagerService, path,
+  m_bus.connect(kNetworkManagerService, path,
       kPropertiesInterface, kPropertiesChangedSignal, this,
       SLOT(onWifiPropertiesChanged(QString, QVariantMap, QStringList)));
-  QDBusConnection::systemBus().connect(kNetworkManagerService, path,
+  m_bus.connect(kNetworkManagerService, path,
       kDeviceInterface, QStringLiteral("StateChanged"), this,
       SLOT(onWifiDeviceStateChanged(uint, uint, uint)));
   refreshActiveConnection();
 }
 
 void WifiController::subscribeAccessPoints(const QString &devicePath) {
-  QDBusConnection::systemBus().connect(
+  m_bus.connect(
       kNetworkManagerService, devicePath, kWirelessInterface,
       QStringLiteral("AccessPointAdded"), this,
       SLOT(onAccessPointAdded(QDBusObjectPath)));
-  QDBusConnection::systemBus().connect(
+  m_bus.connect(
       kNetworkManagerService, devicePath, kWirelessInterface,
       QStringLiteral("AccessPointRemoved"), this,
       SLOT(onAccessPointRemoved(QDBusObjectPath)));

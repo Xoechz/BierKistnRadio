@@ -211,13 +211,13 @@ For deploying to the Pi: the **system repo** inputs this flake and references `p
 
 The project has C++ and QML test layers, both wired into CTest:
 
-- **C++ controller tests** (`tst_controllers`): Qt Test unit tests exercising controller defaults, property changes, and clamping logic. Pure C++ — no D-Bus, no QML.
+- **C++ controller tests** (`tst_controllers`): Qt Test unit tests for defaults, property changes, and clamping, plus private-bus mock MPRIS2, NetworkManager, and BlueZ integration tests. No QML.
 - **MusicBrainz tests** (`tst_release_date`): Qt Test with a local HTTP server for lookup results, caching, failure states, and request pacing.
 - **QML view tests** (`tst_qml`): Qt Quick Test cases in `tests/tst_*.qml`. Run offscreen (`QT_QPA_PLATFORM=offscreen`). Import the `BierKistnRadio` module to test singletons and view behavior.
 
 The core library (`bierkistn_core`) — controllers + QML module — is a static lib linked by both the app and the tests, so tests see the exact same types as the app.
 
-For D-Bus integration tests (when controllers get D-Bus wiring): run a private `dbus-daemon --session` on an isolated address, register mock MPRIS2/NM/BlueZ services on it, and have controllers connect via `QDBusConnection::connectToBus()` rather than hardcoding `sessionBus()`.
+D-Bus integration tests launch a private `dbus-daemon --session` on an isolated address and register mock MPRIS2/NM/BlueZ services. Controllers use injected `QDBusConnection::connectToBus()` connections in those tests.
 
 Run tests via `nix develop --command bash -c 'scripts/test.sh'` — the script already runs the build itself, so **do not** run `scripts/build.sh` first. (Running `nix develop --command bash -c 'ctest --test-dir build --output-on-failure'` directly is fine for re-running without touching the build.)
 

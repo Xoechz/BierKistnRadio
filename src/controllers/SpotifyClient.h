@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDBusArgument>
+#include <QDBusConnection>
 #include <QDBusObjectPath>
 #include <QDBusReply>
 #include <QDBusServiceWatcher>
@@ -27,6 +28,7 @@ class SpotifyClient : public QObject {
 
 public:
   explicit SpotifyClient(QObject *parent = nullptr);
+  explicit SpotifyClient(const QDBusConnection &bus, QObject *parent = nullptr);
 
   QString title() const;
   QString artist() const;
@@ -75,6 +77,7 @@ private:
   bool m_hasTrack = false;
   bool m_available = false;
   QString m_mprisService;
+  QDBusConnection m_bus;
   QString m_subscribedName;
   bool m_daemonPresent = false;
   QDBusObjectPath m_trackId;

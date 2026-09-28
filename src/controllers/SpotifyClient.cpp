@@ -43,13 +43,17 @@ const QString kPlaying = QStringLiteral("Playing");
 const QString kStopped = QStringLiteral("Stopped");
 } // namespace
 
-SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent) {
+SpotifyClient::SpotifyClient(QObject *parent)
+    : SpotifyClient(QDBusConnection::sessionBus(), parent) {}
+
+SpotifyClient::SpotifyClient(const QDBusConnection &bus, QObject *parent)
+    : QObject(parent), m_bus(bus) {
   // QDBusServiceWatcher only matches exact bus names, but spotifyd's MPRIS2
   // name carries its PID and changes on restart. Watch every prefixed name we
   // discover, and re-list periodically to catch new PIDs' replacements.
-  if (QDBusConnection::sessionBus().isConnected()) {
+  if (m_bus.isConnected()) {
     m_watcher =
-        new QDBusServiceWatcher(QString(), QDBusConnection::sessionBus(),
+        new QDBusServiceWatcher(QString(), m_bus,
                                 QDBusServiceWatcher::WatchForOwnerChange, this);
     connect(m_watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
             &SpotifyClient::onServiceOwnerChanged);
@@ -83,7 +87,7 @@ void SpotifyClient::play() {
   }
   QDBusMessage msg = QDBusMessage::createMethodCall(m_mprisService, kPlayerPath,
                                                     kPlayerInterface, "Play");
-  QDBusConnection::sessionBus().send(msg);
+  m_bus.send(msg);
 }
 
 void SpotifyClient::pause() {
@@ -92,7 +96,7 @@ void SpotifyClient::pause() {
   }
   QDBusMessage msg = QDBusMessage::createMethodCall(m_mprisService, kPlayerPath,
                                                     kPlayerInterface, "Pause");
-  QDBusConnection::sessionBus().send(msg);
+  m_bus.send(msg);
 }
 
 void SpotifyClient::next() {
@@ -101,7 +105,7 @@ void SpotifyClient::next() {
   }
   QDBusMessage msg = QDBusMessage::createMethodCall(m_mprisService, kPlayerPath,
                                                     kPlayerInterface, "Next");
-  QDBusConnection::sessionBus().send(msg);
+  m_bus.send(msg);
 }
 
 void SpotifyClient::previous() {
@@ -110,7 +114,7 @@ void SpotifyClient::previous() {
   }
   QDBusMessage msg = QDBusMessage::createMethodCall(
       m_mprisService, kPlayerPath, kPlayerInterface, "Previous");
-  QDBusConnection::sessionBus().send(msg);
+  m_bus.send(msg);
 }
 
 void SpotifyClient::seek(qint64 positionMs) {
@@ -120,7 +124,7 @@ void SpotifyClient::seek(qint64 positionMs) {
   QDBusMessage msg = QDBusMessage::createMethodCall(
       m_mprisService, kPlayerPath, kPlayerInterface, "SetPosition");
   msg << QVariant::fromValue(m_trackId) << (positionMs * 1000);
-  QDBusConnection::sessionBus().send(msg);
+  m_bus.send(msg);
 }
 
 void SpotifyClient::setAvailableForTest(bool available) {
@@ -139,7 +143,10 @@ void SpotifyClient::setMetadataForTest(const QVariantMap &metadata) {
 }
 
 void SpotifyClient::discoverServices() {
-  auto *bus = QDBusConnection::sessionBus().interface();
+  auto *bus = m_bus.interface();
+  if (!bus) {
+    return;
+  }
   QDBusReply<QStringList> reply = bus->registeredServiceNames();
   if (!reply.isValid()) {
     return;
@@ -159,6 +166,7 @@ void SpotifyClient::discoverServices() {
       // ':1.x' sender is already "known", so connect() succeeds.
       const QString owner = bus->serviceOwner(name).value();
       if (owner != m_subscribedName) {
+        unsubscribeFromMpris();
         m_subscribedName = owner.isEmpty() ? name : owner;
         subscribeToMpris();
       }
@@ -208,6 +216,7 @@ void SpotifyClient::onServiceOwnerChanged(const QString &name,
       m_watcher->addWatchedService(name);
     }
     if (newOwner != m_subscribedName) {
+      unsubscribeFromMpris();
       m_subscribedName = newOwner;
       subscribeToMpris();
     }
@@ -215,10 +224,10 @@ void SpotifyClient::onServiceOwnerChanged(const QString &name,
     setAvailable(true);
   } else {
     m_mprisService.clear();
+    unsubscribeFromMpris();
     m_subscribedName.clear();
     m_trackId = QDBusObjectPath();
     setTrackPresence(false);
-    unsubscribeFromMpris();
     if (!m_daemonPresent) {
       setAvailable(false);
     }
@@ -226,13 +235,13 @@ void SpotifyClient::onServiceOwnerChanged(const QString &name,
 }
 
 void SpotifyClient::subscribeToMpris() {
-  QDBusConnection::sessionBus().connect(
+  m_bus.connect(
       m_subscribedName, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
       this, SLOT(onMprisPropertiesChanged(QString, QVariantMap, QStringList)));
 }
 
 void SpotifyClient::unsubscribeFromMpris() {
-  QDBusConnection::sessionBus().disconnect(
+  m_bus.disconnect(
       m_subscribedName, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
       this, SLOT(onMprisPropertiesChanged(QString, QVariantMap, QStringList)));
 }
@@ -241,7 +250,7 @@ void SpotifyClient::fetchInitialMprisState() {
   QDBusMessage msg = QDBusMessage::createMethodCall(
       m_mprisService, kPlayerPath, kPropertiesInterface, "GetAll");
   msg << kPlayerInterface;
-  QDBusReply<QVariantMap> reply = QDBusConnection::sessionBus().call(msg);
+  QDBusReply<QVariantMap> reply = m_bus.call(msg);
 
   if (!reply.isValid()) {
     return;

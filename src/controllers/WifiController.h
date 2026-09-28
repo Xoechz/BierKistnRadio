@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDBusConnection>
 #include <QDBusObjectPath>
 #include <QMap>
 #include <QObject>
@@ -26,6 +27,7 @@ class WifiController : public QObject {
 
 public:
   explicit WifiController(QObject *parent = nullptr);
+  explicit WifiController(const QDBusConnection &bus, QObject *parent = nullptr);
 
   bool connected() const;
   QString ssid() const;
@@ -90,6 +92,7 @@ private:
   static QString dbusErrorText(const QString &operation, const QString &error);
   void setConnectedState(bool connected, const QString &ssid, int signalStrength);
 
+  QDBusConnection m_bus;
   DbusCallable m_dbusCall;
   QVariantMap m_accessPoints; // apPath -> props (Ssid/Strength/Flags/WpaFlags/RsnFlags)
   QVariantList m_networks;
