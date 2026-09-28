@@ -10,6 +10,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 find_package(Qt6 REQUIRED COMPONENTS
     Core
     Gui
+    Network
     Qml
     Quick
     QuickControls2
@@ -43,6 +44,7 @@ target_include_directories(bierkistn_core PUBLIC
 target_link_libraries(bierkistn_core PUBLIC
     Qt6::Core
     Qt6::Gui
+    Qt6::Network
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2

@@ -137,7 +137,7 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
   - Progress: bundled SVG transport icons and a 1024×600 offscreen layout/theme test are in place; visual verification on the physical Pi panel remains.
   - Learn: QML icon resources, scalable alignment in Qt Quick Controls.
 
-- [ ] **T35: Implement ArtCache.** Replace the `cacheArt()` passthrough with asynchronous download and reuse of Spotify artwork under `QStandardPaths::CacheLocation/art`; integrate the returned local artwork with `CenterColumn` without displaying stale art after a track change. Bound disk usage to **100 MB** by pruning oldest cached covers. On download/cache failure, use the existing fallback artwork; retain `clearCache()` and test cache reuse, pruning, and failure behavior.
+- [x] **T35: Implement ArtCache.** Replace the `cacheArt()` passthrough with asynchronous download and reuse of Spotify artwork under `QStandardPaths::CacheLocation/art`; integrate the returned local artwork with `CenterColumn` without displaying stale art after a track change. Bound disk usage to **100 MB** by pruning oldest cached covers. On download/cache failure, use the existing fallback artwork; retain `clearCache()` and test cache reuse, pruning, and failure behavior.
   - Learn: `QNetworkAccessManager`, atomic cache writes, asynchronous QML image updates, bounded disk caches.
 
 - [x] **T36: Cover gestures.** On the album-art area, swipe left for Next, swipe right for Previous, and tap for Play/Pause. Route through `PlaybackController` so Spotify and Bluetooth use the same source-specific availability rules as the existing buttons; distinguish taps from swipes to avoid accidental double actions. Keep the transport buttons usable.

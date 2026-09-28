@@ -13,7 +13,14 @@
 #include <QDBusVirtualObject>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QBuffer>
+#include <QFile>
+#include <QImage>
+#include <QNetworkAccessManager>
 #include <QProcess>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QTemporaryDir>
 #include <QUuid>
 #include <QtTest/QtTest>
 #include <functional>
@@ -117,6 +124,9 @@ private slots:
   void testVolumeMuteFallsBackToTenPercent();
   void testVolumeMuteTracksSliderAndExternalChanges();
   void testArtCacheDirCreation();
+  void testArtCacheDownloadReuseAndClear();
+  void testArtCachePrunesOldCovers();
+  void testArtCacheRejectsFailuresAndInvalidImages();
 };
 
 void TestControllers::testPlaybackControllerDefaults() {
@@ -1590,6 +1600,107 @@ void TestControllers::testArtCacheDirCreation() {
   ArtCache cache;
   QVERIFY(!cache.cacheDir().isEmpty());
   QVERIFY(QDir(cache.cacheDir()).exists());
+}
+
+void TestControllers::testArtCacheDownloadReuseAndClear() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString oldPath = dir.filePath(QStringLiteral("old.jpg"));
+  {
+    QFile old(oldPath);
+    QVERIFY(old.open(QIODevice::WriteOnly));
+    QVERIFY(old.resize(100LL * 1024 * 1024));
+  }
+  QTcpServer server;
+  QVERIFY(server.listen(QHostAddress::LocalHost));
+  QImage image(2, 2, QImage::Format_RGB32);
+  image.fill(Qt::red);
+  QByteArray png;
+  QBuffer buffer(&png);
+  QVERIFY(buffer.open(QIODevice::WriteOnly));
+  QVERIFY(image.save(&buffer, "PNG"));
+  int requests = 0;
+  connect(&server, &QTcpServer::newConnection, &server, [&]() {
+    auto *socket = server.nextPendingConnection();
+    connect(socket, &QTcpSocket::readyRead, socket, [&, socket]() {
+      socket->readAll();
+      ++requests;
+      socket->write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: " +
+                    QByteArray::number(png.size()) + "\r\nConnection: close\r\n\r\n" + png);
+      socket->disconnectFromHost();
+    });
+  });
+  QNetworkAccessManager manager;
+  ArtCache cache(&manager, dir.path());
+  QSignalSpy cached(&cache, &ArtCache::artCached);
+  const QUrl url(QStringLiteral("http://127.0.0.1:%1/cover").arg(server.serverPort()));
+
+  QVERIFY(cache.cacheArt(url, QStringLiteral("one")).isEmpty());
+  QVERIFY(cache.cacheArt(url, QStringLiteral("two")).isEmpty());
+  QTRY_COMPARE(cached.size(), 2);
+  QCOMPARE(requests, 1);
+  QCOMPARE(cached.at(0).at(0).toString(), QStringLiteral("one"));
+  QCOMPARE(cached.at(1).at(0).toString(), QStringLiteral("two"));
+  QVERIFY(!QFile::exists(oldPath)); // the new download pushed the cache over 100 MB
+  const QUrl localUrl = cached.at(0).at(1).toUrl();
+  QVERIFY(localUrl.isLocalFile());
+  QFile file(localUrl.toLocalFile());
+  QVERIFY(file.open(QIODevice::ReadOnly));
+  QCOMPARE(file.readAll(), png);
+  QCOMPARE(cache.cacheArt(url, QStringLiteral("again")), localUrl);
+  QCOMPARE(requests, 1);
+  cache.clearCache();
+  QVERIFY(!QFile::exists(localUrl.toLocalFile()));
+}
+
+void TestControllers::testArtCachePrunesOldCovers() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString oldPath = dir.filePath(QStringLiteral("old.jpg"));
+  const QString recentPath = dir.filePath(QStringLiteral("recent.png"));
+  {
+    QFile old(oldPath);
+    QVERIFY(old.open(QIODevice::WriteOnly));
+    QVERIFY(old.resize(75LL * 1024 * 1024));
+    QFile recent(recentPath);
+    QVERIFY(recent.open(QIODevice::WriteOnly));
+    QVERIFY(recent.resize(40LL * 1024 * 1024));
+    QVERIFY(old.setFileTime(QDateTime::currentDateTimeUtc().addDays(-2),
+                            QFileDevice::FileModificationTime));
+  }
+  QNetworkAccessManager manager;
+  ArtCache cache(&manager, dir.path());
+  QVERIFY(!QFile::exists(oldPath));
+  QVERIFY(QFile::exists(recentPath));
+}
+
+void TestControllers::testArtCacheRejectsFailuresAndInvalidImages() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QTcpServer server;
+  QVERIFY(server.listen(QHostAddress::LocalHost));
+  int status = 404;
+  connect(&server, &QTcpServer::newConnection, &server, [&]() {
+    auto *socket = server.nextPendingConnection();
+    connect(socket, &QTcpSocket::readyRead, socket, [&, socket]() {
+      socket->readAll();
+      const QByteArray result = status == 404 ? "HTTP/1.1 404 Not Found" : "HTTP/1.1 200 OK";
+      socket->write(result + "\r\nContent-Length: 7\r\nConnection: close\r\n\r\ninvalid");
+      socket->disconnectFromHost();
+    });
+  });
+  QNetworkAccessManager manager;
+  ArtCache cache(&manager, dir.path());
+  QSignalSpy cached(&cache, &ArtCache::artCached);
+  const QUrl url(QStringLiteral("http://127.0.0.1:%1/cover").arg(server.serverPort()));
+  QVERIFY(cache.cacheArt(url, QStringLiteral("missing")).isEmpty());
+  QTRY_COMPARE(cached.size(), 1);
+  QVERIFY(cached.at(0).at(1).toUrl().isEmpty());
+  status = 200;
+  QVERIFY(cache.cacheArt(url, QStringLiteral("invalid")).isEmpty());
+  QTRY_COMPARE(cached.size(), 2);
+  QVERIFY(cached.at(1).at(1).toUrl().isEmpty());
+  QCOMPARE(QDir(dir.path()).entryList({"*.jpg", "*.png"}, QDir::Files).size(), 0);
 }
 
 QTEST_MAIN(TestControllers)

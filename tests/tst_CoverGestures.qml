@@ -16,6 +16,16 @@ TestCase {
     }
 
     QtObject {
+        id: fakeArtCache
+        signal artCached(string key, var cachedUrl)
+        property int requests: 0
+        function cacheArt(url, key) {
+            requests++
+            return ""
+        }
+    }
+
+    QtObject {
         id: bluetooth
         property bool positionPublished: false
         property bool statusPublished: false
@@ -49,6 +59,7 @@ TestCase {
             id: center
             anchors.fill: parent
             playback: facade
+            artCache: fakeArtCache
         }
     }
 
@@ -57,6 +68,8 @@ TestCase {
         bluetooth.statusPublished = false
         bluetooth.isBluetoothPlaying = false
         spotify.isSpotifyPlaying = false
+        spotify.artUrl = ""
+        fakeArtCache.requests = 0
         facade.plays = 0
         facade.pauses = 0
         facade.nexts = 0
@@ -153,5 +166,27 @@ TestCase {
         compare(facade.previouses, 1)
         compare(facade.plays, 1)
         compare(facade.nexts, 1)
+    }
+
+    function test_artDoesNotReappearAfterTrackChanges() {
+        facade.playbackState = PlaybackController.SpotifyActive
+        spotify.artUrl = "https://example.org/a.jpg"
+        compare(center.cachedArtUrl, "")
+        compare(fakeArtCache.requests, 1)
+
+        spotify.artUrl = "https://example.org/b.jpg"
+        compare(center.cachedArtUrl, "")
+        compare(fakeArtCache.requests, 2)
+        fakeArtCache.artCached("https://example.org/a.jpg", "file:///old.jpg")
+        compare(center.cachedArtUrl, "")
+        var validUrl = "qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg"
+        fakeArtCache.artCached("https://example.org/b.jpg", validUrl)
+        compare(center.cachedArtUrl, validUrl)
+        fakeArtCache.artCached("https://example.org/b.jpg", "")
+        compare(center.cachedArtUrl, "") // failure leaves the fallback visible
+
+        facade.playbackState = PlaybackController.SpotifyWaiting
+        fakeArtCache.artCached("https://example.org/b.jpg", "file:///late.jpg")
+        compare(center.cachedArtUrl, "")
     }
 }

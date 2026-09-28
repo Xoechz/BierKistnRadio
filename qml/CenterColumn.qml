@@ -8,10 +8,27 @@ Rectangle {
     id: root
     color: Theme.backgroundColor
     property var playback: PlaybackController
+    property var artCache: ArtCache
+    property string cachedArtUrl: ""
+    readonly property string requestedArtUrl: root.playbackState === PlaybackController.SpotifyActive
+        ? root.playback.spotify.artUrl : ""
 
-    readonly property bool showSpotifyArt:
-        root.playbackState === PlaybackController.SpotifyActive
-        && root.playback.spotify.artUrl !== ""
+    onRequestedArtUrlChanged: {
+        root.cachedArtUrl = ""
+        if (root.requestedArtUrl !== "") {
+            root.cachedArtUrl = root.artCache.cacheArt(root.requestedArtUrl,
+                                                       root.requestedArtUrl).toString()
+        }
+    }
+
+    Connections {
+        target: root.artCache
+        function onArtCached(key, cachedUrl) {
+            if (key === root.requestedArtUrl) {
+                root.cachedArtUrl = cachedUrl.toString()
+            }
+        }
+    }
 
     readonly property int playbackState: root.playback.playbackState
 
@@ -133,11 +150,15 @@ Rectangle {
             Layout.preferredWidth: 360
             Layout.preferredHeight: 360
             Layout.topMargin: 12
-            source: root.showSpotifyArt
-                ? root.playback.spotify.artUrl
+            source: root.cachedArtUrl !== "" ? root.cachedArtUrl
                 : "qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg"
             fillMode: Image.PreserveAspectFit
             asynchronous: true
+            onStatusChanged: {
+                if (status === Image.Error && root.cachedArtUrl !== "") {
+                    root.cachedArtUrl = ""
+                }
+            }
 
             MouseArea {
                 id: coverGesture
