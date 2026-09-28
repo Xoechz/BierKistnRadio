@@ -30,6 +30,7 @@ public:
 
   QString title() const;
   QString artist() const;
+  QString firstArtist() const;
   QString album() const;
   QString artUrl() const;
   qint64 position() const;
@@ -49,6 +50,7 @@ public:
   // MPRIS2 D-Bus subscription updates it at runtime, without a live bus.
   void setAvailableForTest(bool available);
   void setHasTrackForTest(bool hasTrack);
+  void setMetadataForTest(const QVariantMap &metadata);
 
 signals:
   void titleChanged();
@@ -64,6 +66,7 @@ signals:
 private:
   QString m_title;
   QString m_artist;
+  QString m_firstArtist;
   QString m_album;
   QString m_artUrl;
   qint64 m_position = 0;

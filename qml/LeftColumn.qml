@@ -13,8 +13,6 @@ Rectangle {
     readonly property string btDeviceName: PlaybackController.bluetooth.connectedDeviceName
     readonly property bool btTrack: PlaybackController.bluetooth.trackPublished
 
-    property string releaseDateText: ""
-
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.defaultSpacing
@@ -137,8 +135,9 @@ Rectangle {
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryTextColor
             visible: root.playbackState === PlaybackController.SpotifyActive
-                     && root.releaseDateText !== ""
-            text: "Release Date: " + root.releaseDateText
+                      && PlaybackController.releaseDate !== ""
+            wrapMode: Text.WordWrap
+            text: "Release Date: " + PlaybackController.releaseDate
         }
 
         Item { Layout.fillHeight: true }

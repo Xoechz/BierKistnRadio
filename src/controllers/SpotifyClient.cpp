@@ -65,6 +65,8 @@ SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent) {
 
 QString SpotifyClient::title() const { return m_title; }
 QString SpotifyClient::artist() const { return m_artist; }
+
+QString SpotifyClient::firstArtist() const { return m_firstArtist; }
 QString SpotifyClient::album() const { return m_album; }
 QString SpotifyClient::artUrl() const { return m_artUrl; }
 qint64 SpotifyClient::position() const { return m_position; }
@@ -130,6 +132,10 @@ void SpotifyClient::setAvailableForTest(bool available) {
 
 void SpotifyClient::setHasTrackForTest(bool hasTrack) {
   setTrackPresence(hasTrack);
+}
+
+void SpotifyClient::setMetadataForTest(const QVariantMap &metadata) {
+  updateFromMetadata(metadata);
 }
 
 void SpotifyClient::discoverServices() {
@@ -295,13 +301,18 @@ void SpotifyClient::updateFromMetadata(const QVariantMap &metadata) {
 
   if (metadata.contains(kArtistKey)) {
     QString v;
+    QString first;
     if (metadata[kArtistKey].canConvert<QStringList>()) {
-      v = metadata[kArtistKey].toStringList().join(", ");
+      const QStringList artists = metadata[kArtistKey].toStringList();
+      v = artists.join(", ");
+      first = artists.value(0);
     } else {
       v = metadata[kArtistKey].toString();
+      first = v;
     }
-    if (m_artist != v) {
+    if (m_artist != v || m_firstArtist != first) {
       m_artist = v;
+      m_firstArtist = first;
       emit artistChanged();
     }
   }

@@ -1,11 +1,22 @@
 #include "PlaybackController.h"
 
 #include "BluetoothClient.h"
+#include "ReleaseDateClient.h"
 #include "SpotifyClient.h"
 
 PlaybackController::PlaybackController(QObject *parent) : QObject(parent) {
   m_spotify = new SpotifyClient(this);
   m_bluetooth = new BluetoothClient(this);
+  m_releaseDates = new ReleaseDateClient(this);
+
+  connect(m_releaseDates, &ReleaseDateClient::releaseDateChanged, this,
+          &PlaybackController::releaseDateChanged);
+  connect(m_spotify, &SpotifyClient::titleChanged, this,
+          &PlaybackController::refreshReleaseDate);
+  connect(m_spotify, &SpotifyClient::artistChanged, this,
+          &PlaybackController::refreshReleaseDate);
+  connect(m_spotify, &SpotifyClient::hasTrackChanged, this,
+          &PlaybackController::refreshReleaseDate);
 
   connect(m_spotify, &SpotifyClient::availableChanged, this,
           &PlaybackController::onSpotifyChanged);
@@ -31,6 +42,8 @@ bool PlaybackController::isBluetoothActive() const {
 SpotifyClient *PlaybackController::spotify() const { return m_spotify; }
 
 BluetoothClient *PlaybackController::bluetooth() const { return m_bluetooth; }
+
+QString PlaybackController::releaseDate() const { return m_releaseDates->releaseDate(); }
 
 void PlaybackController::play() {
   if (m_playbackState == BluetoothActive) {
@@ -161,12 +174,21 @@ void PlaybackController::refreshSpotifyState() {
   setPlaybackState(next);
 }
 
+void PlaybackController::refreshReleaseDate() {
+  if (m_playbackState == SpotifyActive && m_spotify->hasTrack()) {
+    m_releaseDates->setTrack(m_spotify->title(), m_spotify->firstArtist());
+  } else {
+    m_releaseDates->clearTrack();
+  }
+}
+
 void PlaybackController::setPlaybackState(PlaybackState next) {
   if (m_playbackState == next) {
     return;
   }
   bool wasBt = (m_playbackState == BluetoothActive);
   m_playbackState = next;
+  refreshReleaseDate();
   emit playbackStateChanged();
   if (wasBt != (next == BluetoothActive)) {
     emit isBluetoothActiveChanged();

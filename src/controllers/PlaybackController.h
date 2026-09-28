@@ -7,6 +7,8 @@
 #include "BluetoothClient.h"
 #include "SpotifyClient.h"
 
+class ReleaseDateClient;
+
 class PlaybackController : public QObject {
   Q_OBJECT
   QML_SINGLETON
@@ -18,6 +20,7 @@ class PlaybackController : public QObject {
                  isBluetoothActiveChanged)
   Q_PROPERTY(SpotifyClient *spotify READ spotify CONSTANT)
   Q_PROPERTY(BluetoothClient *bluetooth READ bluetooth CONSTANT)
+  Q_PROPERTY(QString releaseDate READ releaseDate NOTIFY releaseDateChanged)
 
 public:
   enum PlaybackState {
@@ -35,6 +38,7 @@ public:
   bool isBluetoothActive() const;
   SpotifyClient *spotify() const;
   BluetoothClient *bluetooth() const;
+  QString releaseDate() const;
 
   Q_INVOKABLE void play();
   Q_INVOKABLE void pause();
@@ -47,16 +51,19 @@ public:
 signals:
   void playbackStateChanged();
   void isBluetoothActiveChanged();
+  void releaseDateChanged();
 
 private:
   PlaybackState m_playbackState = SpotifyUnavailable;
   SpotifyClient *m_spotify = nullptr;
   BluetoothClient *m_bluetooth = nullptr;
+  ReleaseDateClient *m_releaseDates = nullptr;
 
   void onSpotifyChanged();
   void onBluetoothChanged();
   void onBluetoothConnected();
   void onBluetoothDisconnected();
   void refreshSpotifyState();
+  void refreshReleaseDate();
   void setPlaybackState(PlaybackState next);
 };

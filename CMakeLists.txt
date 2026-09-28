@@ -34,6 +34,7 @@ qt_add_library(bierkistn_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/VolumeController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PowerController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/ArtCache.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/ReleaseDateClient.cpp
 )
 
 target_include_directories(bierkistn_core PUBLIC
@@ -110,6 +111,12 @@ target_link_libraries(tst_controllers PRIVATE
 )
 
 add_test(NAME tst_controllers COMMAND tst_controllers)
+
+qt_add_executable(tst_release_date
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_release_date.cpp
+)
+target_link_libraries(tst_release_date PRIVATE bierkistn_core Qt6::Test)
+add_test(NAME tst_release_date COMMAND tst_release_date)
 
 # QML view tests
 qt_add_executable(tst_qml

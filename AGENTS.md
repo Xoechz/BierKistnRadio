@@ -165,7 +165,8 @@ Only the **shown Source** is audible; the inactive Source is **muted and paused*
 │       ├── WifiController.{h,cpp}       # NetworkManager
 │       ├── VolumeController.{h,cpp}    # wpctl (source-independent sink volume)
 │       ├── PowerController.{h,cpp}     # systemctl reboot/poweroff (QProcess)
-│       └── ArtCache.{h,cpp}             # album art cache + cleanup
+│       ├── ArtCache.{h,cpp}             # album art cache + cleanup
+│       └── ReleaseDateClient.{h,cpp}    # MusicBrainz date lookup + rate limit
 ├── qml/
 │   ├── Main.qml             # root window, frameless fullscreen, three-column layout
 │   ├── Theme.qml            # singleton: colors, sizes, fonts, Material theme
@@ -180,6 +181,7 @@ Only the **shown Source** is audible; the inactive Source is **muted and paused*
 │       └── fallback-album.svg # fallback album art (embedded Qt resource)
 ├── tests/
 │   ├── tst_controllers.cpp  # C++ controller unit tests (Qt Test)
+│   ├── tst_release_date.cpp # MusicBrainz HTTP boundary tests (Qt Test)
 │   ├── tst_qml.cpp          # QML test harness (Qt Quick Test)
 │   └── tst_Theme.qml        # QML singleton tests
 └── scripts/                 # dev convenience (assume you're in `nix develop`)
@@ -197,7 +199,7 @@ All scripts assume you have first entered the Nix devShell: `nix develop` (or `d
 | `scripts/clean.sh` | Remove the `build/` directory. |
 | `scripts/nix-build.sh` | Full reproducible Nix build → `result/bin/bierkistnRadio` (x86_64). Use for a clean verification. |
 | `scripts/nix-build-pi.sh` | Cross-build the `aarch64-linux` package for the Pi. |
-| `scripts/test.sh` | Build and run all tests via CTest (`tst_controllers` + `tst_qml`). |
+| `scripts/test.sh` | Build and run all tests via CTest (`tst_controllers`, `tst_release_date`, and `tst_qml`). |
 
 For day-to-day iteration: `nix develop` → `scripts/setup.sh` (once) → `scripts/build.sh` → `scripts/run.sh`.
 
@@ -207,9 +209,10 @@ For deploying to the Pi: the **system repo** inputs this flake and references `p
 
 ## 8. Testing
 
-The project has two test layers, both wired into CTest:
+The project has C++ and QML test layers, both wired into CTest:
 
 - **C++ controller tests** (`tst_controllers`): Qt Test unit tests exercising controller defaults, property changes, and clamping logic. Pure C++ — no D-Bus, no QML.
+- **MusicBrainz tests** (`tst_release_date`): Qt Test with a local HTTP server for lookup results, caching, failure states, and request pacing.
 - **QML view tests** (`tst_qml`): Qt Quick Test cases in `tests/tst_*.qml`. Run offscreen (`QT_QPA_PLATFORM=offscreen`). Import the `BierKistnRadio` module to test singletons and view behavior.
 
 The core library (`bierkistn_core`) — controllers + QML module — is a static lib linked by both the app and the tests, so tests see the exact same types as the app.

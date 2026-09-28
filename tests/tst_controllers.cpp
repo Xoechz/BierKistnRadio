@@ -113,6 +113,7 @@ private slots:
   void testBluetoothPlayerAddedBeforeDevice();
   void testBluetoothPrivateBusObjectManagerAndProperties();
   void testSpotifyClientDefaults();
+  void testSpotifyFirstArtistFromMetadata();
   void testVolumeControllerDefaults();
   void testVolumeControllerParse();
   void testVolumeControllerReadsFromWpctl();
@@ -1414,6 +1415,17 @@ void TestControllers::testSpotifyClientDefaults() {
   QCOMPARE(c.duration(), qint64(0));
   QCOMPARE(c.hasTrack(), false);
   QCOMPARE(c.isAvailable(), false);
+}
+
+void TestControllers::testSpotifyFirstArtistFromMetadata() {
+  SpotifyClient client;
+  QSignalSpy changed(&client, &SpotifyClient::artistChanged);
+  client.setMetadataForTest(
+      {{QStringLiteral("xesam:artist"), QStringList{QStringLiteral("AC/DC"),
+                                                    QStringLiteral("Guest")}}});
+  QCOMPARE(client.artist(), QStringLiteral("AC/DC, Guest"));
+  QCOMPARE(client.firstArtist(), QStringLiteral("AC/DC"));
+  QCOMPARE(changed.size(), 1);
 }
 
 void TestControllers::testVolumeControllerDefaults() {
