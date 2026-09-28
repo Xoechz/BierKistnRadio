@@ -28,6 +28,8 @@ VolumeController::VolumeController(QObject *parent) : QObject(parent) {
 
 int VolumeController::volume() const { return m_volume; }
 
+bool VolumeController::muted() const { return m_volume == 0; }
+
 void VolumeController::setVolume(int percent) {
   percent = std::clamp(percent, 0, m_maxVolumePercent);
 
@@ -35,6 +37,9 @@ void VolumeController::setVolume(int percent) {
     return;
   }
 
+  if (percent > 0) {
+    m_lastNonzeroVolume = percent;
+  }
   m_volume = percent;
   emit volumeChanged();
 
@@ -42,6 +47,14 @@ void VolumeController::setVolume(int percent) {
   m_runner(QStringList{QStringLiteral("set-volume"), QStringLiteral("@DEFAULT_AUDIO_SINK@"),
                        QString::number(percent) + QStringLiteral("%")},
            [](const QByteArray &) {});
+}
+
+void VolumeController::setMuted(bool muted) {
+  if (muted) {
+    setVolume(0);
+  } else if (m_volume == 0) {
+    setVolume(m_lastNonzeroVolume > 0 ? m_lastNonzeroVolume : 10);
+  }
 }
 
 void VolumeController::increaseVolume() { setVolume(m_volume + 5); }
@@ -72,10 +85,13 @@ void VolumeController::pollVolume() {
                return; // a write landed after this read was issued; discard stale
              }
              const int parsed = parseVolume(output);
-             if (parsed < 0 || parsed == m_volume) {
-               return;
-             }
-             m_volume = parsed;
+              if (parsed < 0 || parsed == m_volume) {
+                return;
+              }
+              if (parsed > 0) {
+                m_lastNonzeroVolume = parsed;
+              }
+              m_volume = parsed;
              emit volumeChanged();
            });
 }

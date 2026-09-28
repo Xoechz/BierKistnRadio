@@ -113,6 +113,9 @@ private slots:
   void testVolumeControllerIssuesSetVolumeCommand();
   void testVolumeControllerClamping();
   void testVolumeControllerNoReadBackRace();
+  void testVolumeMuteRestoresLastLevel();
+  void testVolumeMuteFallsBackToTenPercent();
+  void testVolumeMuteTracksSliderAndExternalChanges();
   void testArtCacheDirCreation();
 };
 
@@ -1503,6 +1506,84 @@ void TestControllers::testVolumeControllerNoReadBackRace() {
   // The stale read completes with the *old* value; must be discarded.
   pendingReadFinish("Volume: 0.50\n");
   QCOMPARE(c.volume(), 80);
+}
+
+void TestControllers::testVolumeMuteRestoresLastLevel() {
+  VolumeController c;
+  QList<QStringList> calls;
+  c.setCommandRunnerForTest(
+      [&calls](const QStringList &args,
+               const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args);
+        onFinished(QByteArray());
+      });
+  QSignalSpy volumeSpy(&c, &VolumeController::volumeChanged);
+
+  c.setVolume(85);
+  QVERIFY(!c.muted());
+  c.setMuted(true);
+  QCOMPARE(c.volume(), 0);
+  QVERIFY(c.muted());
+  QCOMPARE(calls.last(), (QStringList{"set-volume", "@DEFAULT_AUDIO_SINK@", "0%"}));
+  c.setMuted(true);
+  QCOMPARE(calls.size(), 2); // repeated mute must not overwrite the saved level
+
+  c.setMuted(false);
+  QCOMPARE(c.volume(), 85);
+  QVERIFY(!c.muted());
+  QCOMPARE(calls.last(), (QStringList{"set-volume", "@DEFAULT_AUDIO_SINK@", "85%"}));
+  QCOMPARE(volumeSpy.size(), 3);
+}
+
+void TestControllers::testVolumeMuteFallsBackToTenPercent() {
+  VolumeController c;
+  QList<QStringList> calls;
+  c.setCommandRunnerForTest(
+      [&calls](const QStringList &args,
+               const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args);
+        onFinished(QByteArray());
+      });
+  QVERIFY(c.muted());
+  c.setMuted(false);
+  QCOMPARE(c.volume(), 10);
+  QCOMPARE(calls.last(), (QStringList{"set-volume", "@DEFAULT_AUDIO_SINK@", "10%"}));
+}
+
+void TestControllers::testVolumeMuteTracksSliderAndExternalChanges() {
+  VolumeController c;
+  QList<QStringList> calls;
+  QByteArray current("Volume: 0.60\n");
+  c.setCommandRunnerForTest(
+      [&calls, &current](const QStringList &args,
+                         const std::function<void(const QByteArray &)> &onFinished) {
+        calls.append(args);
+        onFinished(args.first() == QStringLiteral("get-volume") ? current : QByteArray());
+      });
+  c.pollNowForTest();
+  QCOMPARE(c.volume(), 60);
+  c.setMuted(true);
+  QVERIFY(c.muted());
+
+  // Moving the slider above zero is an unmute, and becomes the new restore level.
+  c.setVolume(45);
+  QVERIFY(!c.muted());
+  c.setMuted(true);
+  c.setMuted(false);
+  QCOMPARE(c.volume(), 45);
+
+  // The external knob's changes arrive via the existing 1-second poll.
+  current = "Volume: 0.00\n";
+  c.pollNowForTest();
+  QVERIFY(c.muted());
+  current = "Volume: 0.72\n";
+  c.pollNowForTest();
+  QCOMPARE(c.volume(), 72);
+  QVERIFY(!c.muted());
+  c.setMuted(true);
+  c.setMuted(false);
+  QCOMPARE(c.volume(), 72);
+  QCOMPARE(calls.last(), (QStringList{"set-volume", "@DEFAULT_AUDIO_SINK@", "72%"}));
 }
 
 void TestControllers::testArtCacheDirCreation() {

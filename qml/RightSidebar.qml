@@ -86,6 +86,16 @@ Rectangle {
                     }
                 }
             }
+
+            Button {
+                objectName: "volumeMuteButton"
+                Layout.preferredWidth: Theme.touchTarget
+                Layout.preferredHeight: Theme.touchTarget
+                Layout.alignment: Qt.AlignVCenter
+                text: VolumeController.muted ? "🔇" : "🔊"
+                Accessible.name: VolumeController.muted ? "Unmute volume" : "Mute volume"
+                onClicked: VolumeController.setMuted(!VolumeController.muted)
+            }
         }
 
         // ---------- Dark mode ----------

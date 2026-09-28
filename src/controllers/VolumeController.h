@@ -12,13 +12,16 @@ class VolumeController : public QObject {
   QML_NAMED_ELEMENT(VolumeController)
 
   Q_PROPERTY(int volume READ volume NOTIFY volumeChanged)
+  Q_PROPERTY(bool muted READ muted NOTIFY volumeChanged)
 
 public:
   explicit VolumeController(QObject *parent = nullptr);
 
   int volume() const;
+  bool muted() const;
 
   Q_INVOKABLE void setVolume(int percent);
+  Q_INVOKABLE void setMuted(bool muted);
   Q_INVOKABLE void increaseVolume();
   Q_INVOKABLE void decreaseVolume();
 
@@ -43,6 +46,7 @@ private:
   void pollVolume();
 
   int m_volume = 0;
+  int m_lastNonzeroVolume = 0;
   int m_maxVolumePercent = 150;
   quint64 m_writeGen = 0;
   QTimer m_pollTimer;
