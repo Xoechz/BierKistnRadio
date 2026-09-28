@@ -7,22 +7,23 @@ import BierKistnRadio
 Rectangle {
     id: root
     color: Theme.backgroundColor
+    property var playback: PlaybackController
 
     readonly property bool showSpotifyArt:
         root.playbackState === PlaybackController.SpotifyActive
-        && PlaybackController.spotify.artUrl !== ""
+        && root.playback.spotify.artUrl !== ""
 
-    readonly property int playbackState: PlaybackController.playbackState
+    readonly property int playbackState: root.playback.playbackState
 
     readonly property bool showSpotifyProgress:
         root.playbackState === PlaybackController.SpotifyActive
 
     readonly property bool showBluetoothBar:
         root.playbackState === PlaybackController.BluetoothActive
-        && PlaybackController.bluetooth.positionPublished
+        && root.playback.bluetooth.positionPublished
 
     readonly property bool bluetoothHasDuration:
-        PlaybackController.bluetooth.duration > 0
+        root.playback.bluetooth.duration > 0
 
     readonly property bool showTimeLabels:
         root.showSpotifyProgress || (root.showBluetoothBar && root.bluetoothHasDuration)
@@ -30,14 +31,14 @@ Rectangle {
     readonly property bool showTransport:
         root.playbackState === PlaybackController.SpotifyActive
         || (root.playbackState === PlaybackController.BluetoothActive
-            && PlaybackController.bluetooth.statusPublished)
+            && root.playback.bluetooth.statusPublished)
 
     readonly property string playPauseGlyph: {
         if (root.playbackState === PlaybackController.SpotifyActive) {
-            return PlaybackController.spotify.isSpotifyPlaying ? "⏸" : "▶"
+            return root.playback.spotify.isSpotifyPlaying ? "⏸" : "▶"
         }
         if (root.playbackState === PlaybackController.BluetoothActive) {
-            return PlaybackController.bluetooth.isBluetoothPlaying ? "⏸" : "▶"
+            return root.playback.bluetooth.isBluetoothPlaying ? "⏸" : "▶"
         }
         return "▶"
     }
@@ -51,29 +52,29 @@ Rectangle {
     property double spAnchorMs: 0
     property double spAnchorTime: Date.now()
 
-    property double backendSpPos: PlaybackController.spotify.position
+    property double backendSpPos: root.playback.spotify.position
     onBackendSpPosChanged: root.reanchorSp()
 
-    property bool backendSpPlaying: PlaybackController.spotify.isSpotifyPlaying
+    property bool backendSpPlaying: root.playback.spotify.isSpotifyPlaying
     onBackendSpPlayingChanged: root.reanchorSp()
 
     function reanchorSp() {
-        root.spAnchorMs = PlaybackController.spotify.position
+        root.spAnchorMs = root.playback.spotify.position
         root.spAnchorTime = Date.now()
         root.recomputeSp()
     }
 
     function recomputeSp() {
-        if (root.showSpotifyProgress && PlaybackController.spotify.isSpotifyPlaying) {
+        if (root.showSpotifyProgress && root.playback.spotify.isSpotifyPlaying) {
             var est = root.spAnchorMs + (Date.now() - root.spAnchorTime)
-            var dur = PlaybackController.spotify.duration
+            var dur = root.playback.spotify.duration
             if (dur > 0 && est > dur) {
                 est = dur
             }
             root.spPosMs = est
         } else {
             // Paused or not showing: surface the last true position.
-            root.spPosMs = PlaybackController.spotify.position
+            root.spPosMs = root.playback.spotify.position
         }
     }
 
@@ -82,7 +83,7 @@ Rectangle {
         interval: 500
         repeat: true
         running: root.showSpotifyProgress
-                 && PlaybackController.spotify.isSpotifyPlaying
+                  && root.playback.spotify.isSpotifyPlaying
                  && !scrubSlider.pressed
         onTriggered: root.recomputeSp()
     }
@@ -91,11 +92,11 @@ Rectangle {
 
     readonly property double currentMs:
         root.showSpotifyProgress ? root.spPosMs
-                                 : PlaybackController.bluetooth.position
+                                  : root.playback.bluetooth.position
 
     readonly property double totalMs:
-        root.showSpotifyProgress ? PlaybackController.spotify.duration
-                                 : PlaybackController.bluetooth.duration
+        root.showSpotifyProgress ? root.playback.spotify.duration
+                                  : root.playback.bluetooth.duration
 
     function formatTime(ms) {
         if (ms < 0) {
@@ -108,16 +109,19 @@ Rectangle {
     }
 
     function togglePlayPause() {
+        if (!root.showTransport) {
+            return
+        }
         var playing
         if (root.playbackState === PlaybackController.SpotifyActive) {
-            playing = PlaybackController.spotify.isSpotifyPlaying
+            playing = root.playback.spotify.isSpotifyPlaying
         } else if (root.playbackState === PlaybackController.BluetoothActive) {
-            playing = PlaybackController.bluetooth.isBluetoothPlaying
+            playing = root.playback.bluetooth.isBluetoothPlaying
         }
         if (playing) {
-            PlaybackController.pause()
+            root.playback.pause()
         } else {
-            PlaybackController.play()
+            root.playback.play()
         }
     }
 
@@ -134,10 +138,45 @@ Rectangle {
             Layout.preferredHeight: 360
             Layout.topMargin: 12
             source: root.showSpotifyArt
-                ? PlaybackController.spotify.artUrl
+                ? root.playback.spotify.artUrl
                 : "qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg"
             fillMode: Image.PreserveAspectFit
             asynchronous: true
+
+            MouseArea {
+                id: coverGesture
+                objectName: "coverGesture"
+                anchors.fill: parent
+                enabled: root.showTransport
+                // A horizontal move of at least one touch target is a swipe;
+                // shorter movements count as taps only within the tap radius.
+                readonly property real swipeDistance: Theme.touchTarget
+                readonly property real tapDistance: Theme.smallSpacing * 2
+                property real startX: 0
+                property real startY: 0
+
+                onPressed: mouse => {
+                    startX = mouse.x
+                    startY = mouse.y
+                }
+                onReleased: mouse => {
+                    if (!root.showTransport || mouse.x < 0 || mouse.x > width
+                            || mouse.y < 0 || mouse.y > height) {
+                        return
+                    }
+                    var dx = mouse.x - startX
+                    var dy = mouse.y - startY
+                    if (Math.abs(dx) >= swipeDistance && Math.abs(dx) > Math.abs(dy)) {
+                        if (dx < 0) {
+                            root.playback.next()
+                        } else {
+                            root.playback.previous()
+                        }
+                    } else if (Math.abs(dx) <= tapDistance && Math.abs(dy) <= tapDistance) {
+                        root.togglePlayPause()
+                    }
+                }
+            }
         }
 
         Item { Layout.fillHeight: true }
@@ -163,7 +202,7 @@ Rectangle {
                 Layout.fillWidth: true
                 visible: root.showSpotifyProgress
                 from: 0
-                to: Math.max(1, PlaybackController.spotify.duration / 1000)
+                to: Math.max(1, root.playback.spotify.duration / 1000)
                 value: root.spPosMs / 1000
                 // While pressed: follow the thumb visually/label-wise only, do
                 // not spam seeks. Commit ONE seek when the drag ends.
@@ -175,7 +214,7 @@ Rectangle {
                     } else {
                         root.spAnchorMs = root.spPosMs
                         root.spAnchorTime = Date.now()
-                        PlaybackController.seek(root.spPosMs)
+                        root.playback.seek(root.spPosMs)
                     }
                 onMoved: {
                     root.spPosMs = scrubSlider.value * 1000
@@ -192,7 +231,7 @@ Rectangle {
                 from: 0
                 to: 1
                 value: root.bluetoothHasDuration
-                    ? PlaybackController.bluetooth.position / PlaybackController.bluetooth.duration
+                    ? root.playback.bluetooth.position / root.playback.bluetooth.duration
                     : 0
             }
 
@@ -220,7 +259,7 @@ Rectangle {
                 Layout.preferredHeight: Theme.touchTargetLarge
                 text: "⏮"
                 font.pixelSize: 28
-                onClicked: PlaybackController.previous()
+                onClicked: root.playback.previous()
             }
             Button {
                 Layout.preferredWidth: Theme.touchTargetLarge
@@ -235,7 +274,7 @@ Rectangle {
                 Layout.preferredHeight: Theme.touchTargetLarge
                 text: "⏭"
                 font.pixelSize: 28
-                onClicked: PlaybackController.next()
+                onClicked: root.playback.next()
             }
         }
 
