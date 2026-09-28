@@ -33,15 +33,11 @@ Rectangle {
         || (root.playbackState === PlaybackController.BluetoothActive
             && root.playback.bluetooth.statusPublished)
 
-    readonly property string playPauseGlyph: {
-        if (root.playbackState === PlaybackController.SpotifyActive) {
-            return root.playback.spotify.isSpotifyPlaying ? "⏸" : "▶"
-        }
-        if (root.playbackState === PlaybackController.BluetoothActive) {
-            return root.playback.bluetooth.isBluetoothPlaying ? "⏸" : "▶"
-        }
-        return "▶"
-    }
+    readonly property bool isPlaying:
+        root.playbackState === PlaybackController.SpotifyActive
+            ? root.playback.spotify.isSpotifyPlaying
+            : root.playbackState === PlaybackController.BluetoothActive
+              && root.playback.bluetooth.isBluetoothPlaying
 
     // ---- Interpolated Spotify position -------------------------------------
     // spotifyd only publishes `Position` on the 5 s poll (no PropertiesChanged
@@ -255,25 +251,42 @@ Rectangle {
             visible: root.showTransport
 
             Button {
+                objectName: "previousButton"
                 Layout.preferredWidth: Theme.touchTargetLarge
                 Layout.preferredHeight: Theme.touchTargetLarge
-                text: "⏮"
-                font.pixelSize: 28
+                display: AbstractButton.IconOnly
+                icon.source: "qrc:/qt/qml/BierKistnRadio/assets/previous.svg"
+                icon.color: Theme.textColor
+                icon.width: 28
+                icon.height: 28
+                Accessible.name: "Previous"
                 onClicked: root.playback.previous()
             }
             Button {
+                objectName: "playPauseButton"
                 Layout.preferredWidth: Theme.touchTargetLarge
                 Layout.preferredHeight: Theme.touchTargetLarge
-                text: root.playPauseGlyph
-                font.pixelSize: 28
+                display: AbstractButton.IconOnly
+                icon.source: root.isPlaying
+                    ? "qrc:/qt/qml/BierKistnRadio/assets/pause.svg"
+                    : "qrc:/qt/qml/BierKistnRadio/assets/play.svg"
+                icon.color: Theme.textColor
+                icon.width: 28
+                icon.height: 28
+                Accessible.name: root.isPlaying ? "Pause" : "Play"
                 highlighted: true
                 onClicked: root.togglePlayPause()
             }
             Button {
+                objectName: "nextButton"
                 Layout.preferredWidth: Theme.touchTargetLarge
                 Layout.preferredHeight: Theme.touchTargetLarge
-                text: "⏭"
-                font.pixelSize: 28
+                display: AbstractButton.IconOnly
+                icon.source: "qrc:/qt/qml/BierKistnRadio/assets/next.svg"
+                icon.color: Theme.textColor
+                icon.width: 28
+                icon.height: 28
+                Accessible.name: "Next"
                 onClicked: root.playback.next()
             }
         }

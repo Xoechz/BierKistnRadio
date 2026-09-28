@@ -117,4 +117,41 @@ TestCase {
         facade.playbackState = PlaybackController.BluetoothWaiting
         compare(area.enabled, false)
     }
+
+    function test_transportIconsAtPanelSize() {
+        facade.playbackState = PlaybackController.SpotifyActive
+        var previous = findChild(center, "previousButton")
+        var toggle = findChild(center, "playPauseButton")
+        var next = findChild(center, "nextButton")
+        verify(previous !== null && toggle !== null && next !== null)
+        compare(window.width, 1024)
+        compare(window.height, 600)
+
+        for (var dark of [true, false]) {
+            Theme.darkMode = dark
+            for (var button of [previous, toggle, next]) {
+                compare(button.width, Theme.touchTargetLarge)
+                compare(button.height, Theme.touchTargetLarge)
+                compare(button.display, AbstractButton.IconOnly)
+                compare(button.icon.width, 28)
+                compare(button.icon.height, 28)
+                compare(button.icon.color, Theme.textColor)
+                verify(button.icon.source.toString().endsWith(".svg"))
+            }
+            compare(previous.y, toggle.y)
+            compare(toggle.y, next.y)
+            compare(toggle.x - previous.x, next.x - toggle.x)
+            verify(toggle.icon.source.toString().endsWith("/play.svg"))
+            spotify.isSpotifyPlaying = true
+            verify(toggle.icon.source.toString().endsWith("/pause.svg"))
+            spotify.isSpotifyPlaying = false
+        }
+        Theme.darkMode = true
+        mouseClick(previous)
+        mouseClick(toggle)
+        mouseClick(next)
+        compare(facade.previouses, 1)
+        compare(facade.plays, 1)
+        compare(facade.nexts, 1)
+    }
 }

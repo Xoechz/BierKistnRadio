@@ -70,11 +70,16 @@ qt_add_qml_module(bierkistn_core
         qml/TakeoverDialog.qml
 )
 
-# Fallback album art — embedded at qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg
-qt_add_resources(bierkistn_core "fallback_album"
+# Embedded artwork and transport icons.
+qt_add_resources(bierkistn_core "app_assets"
     PREFIX "/qt/qml/BierKistnRadio/assets"
     BASE "qml/assets"
-    FILES qml/assets/fallback-album.svg
+    FILES
+        qml/assets/fallback-album.svg
+        qml/assets/previous.svg
+        qml/assets/play.svg
+        qml/assets/pause.svg
+        qml/assets/next.svg
 )
 
 # --- Application executable ---

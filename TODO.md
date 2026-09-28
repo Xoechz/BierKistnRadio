@@ -134,6 +134,7 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 ## Phase 6: Feedback — touch and artwork polish
 
 - [ ] **T34: Center transport icons.** Replace the font-dependent Previous, Play/Pause, and Next glyphs in `CenterColumn.qml` with consistently centered icons for both themes and keep the existing large touch targets. Verify alignment on the 1024×600 panel.
+  - Progress: bundled SVG transport icons and a 1024×600 offscreen layout/theme test are in place; visual verification on the physical Pi panel remains.
   - Learn: QML icon resources, scalable alignment in Qt Quick Controls.
 
 - [ ] **T35: Implement ArtCache.** Replace the `cacheArt()` passthrough with asynchronous download and reuse of Spotify artwork under `QStandardPaths::CacheLocation/art`; integrate the returned local artwork with `CenterColumn` without displaying stale art after a track change. Bound disk usage to **100 MB** by pruning oldest cached covers. On download/cache failure, use the existing fallback artwork; retain `clearCache()` and test cache reuse, pruning, and failure behavior.
