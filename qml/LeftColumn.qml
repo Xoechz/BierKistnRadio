@@ -8,10 +8,11 @@ Rectangle {
     id: root
     color: Theme.surfaceColor
 
-    readonly property int playbackState: PlaybackController.playbackState
+    property var playback: PlaybackController
+    readonly property int playbackState: playback.playbackState
 
-    readonly property string btDeviceName: PlaybackController.bluetooth.connectedDeviceName
-    readonly property bool btTrack: PlaybackController.bluetooth.trackPublished
+    readonly property string btDeviceName: playback.bluetooth.connectedDeviceName
+    readonly property bool btTrack: playback.bluetooth.trackPublished
 
     ColumnLayout {
         anchors.fill: parent
@@ -42,11 +43,12 @@ Rectangle {
         // ---------- BluetoothActive (no track) ----------
         Label {
             id: btNoTrackTitle
+            objectName: "btNoTrackTitle"
             Layout.fillWidth: true
             font.pixelSize: Theme.fontSizeXLarge
             font.bold: true
             color: Theme.textColor
-            wrapMode: Text.WordWrap
+            wrapMode: Text.Wrap
             maximumLineCount: 3
             elide: Text.ElideRight
             visible: root.playbackState === PlaybackController.BluetoothActive && !root.btTrack
@@ -54,6 +56,7 @@ Rectangle {
         }
         Label {
             id: btNoTrackSubtitle
+            objectName: "btNoTrackSubtitle"
             Layout.fillWidth: true
             font.pixelSize: Theme.fontSizeMedium
             color: Theme.secondaryTextColor
@@ -64,11 +67,12 @@ Rectangle {
         // ---------- Track title ----------
         Label {
             id: trackTitleLabel
+            objectName: "trackTitleLabel"
             Layout.fillWidth: true
             font.pixelSize: Theme.fontSizeXLarge
             font.bold: true
             color: Theme.textColor
-            wrapMode: Text.WordWrap
+            wrapMode: Text.Wrap
             maximumLineCount: 3
             elide: Text.ElideRight
             visible: root.playbackState === PlaybackController.SpotifyActive
@@ -76,9 +80,9 @@ Rectangle {
             text: {
                 switch (root.playbackState) {
                 case PlaybackController.SpotifyActive:
-                    return PlaybackController.spotify.title
+                    return root.playback.spotify.title
                 case PlaybackController.BluetoothActive:
-                    return PlaybackController.bluetooth.trackTitle + " via " + root.btDeviceName
+                    return root.playback.bluetooth.trackTitle + " via " + root.btDeviceName
                 }
                 return ""
             }
@@ -87,6 +91,7 @@ Rectangle {
         // ---------- Artist ----------
         Label {
             id: artistLabel
+            objectName: "artistLabel"
             Layout.fillWidth: true
             font.pixelSize: Theme.fontSizeMedium
             color: Theme.secondaryTextColor
@@ -98,9 +103,9 @@ Rectangle {
             text: {
                 switch (root.playbackState) {
                 case PlaybackController.SpotifyActive:
-                    return PlaybackController.spotify.artist
+                    return root.playback.spotify.artist
                 case PlaybackController.BluetoothActive:
-                    return PlaybackController.bluetooth.trackArtist
+                    return root.playback.bluetooth.trackArtist
                 }
                 return ""
             }
@@ -109,6 +114,7 @@ Rectangle {
         // ---------- Album ----------
         Label {
             id: albumLabel
+            objectName: "albumLabel"
             Layout.fillWidth: true
             font.pixelSize: Theme.fontSizeMedium
             color: Theme.secondaryTextColor
@@ -120,9 +126,9 @@ Rectangle {
             text: {
                 switch (root.playbackState) {
                 case PlaybackController.SpotifyActive:
-                    return PlaybackController.spotify.album
+                    return root.playback.spotify.album
                 case PlaybackController.BluetoothActive:
-                    return PlaybackController.bluetooth.trackAlbum
+                    return root.playback.bluetooth.trackAlbum
                 }
                 return ""
             }
@@ -135,9 +141,9 @@ Rectangle {
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryTextColor
             visible: root.playbackState === PlaybackController.SpotifyActive
-                      && PlaybackController.releaseDate !== ""
+                       && root.playback.releaseDate !== ""
             wrapMode: Text.WordWrap
-            text: "Release Date: " + PlaybackController.releaseDate
+            text: "Release Date: " + root.playback.releaseDate
         }
 
         Item { Layout.fillHeight: true }

@@ -153,6 +153,7 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
   - Learn: `QT_IM_MODULE`, `InputPanel` stacking in `Overlay.overlay`, and adapting popup geometry to the keyboard.
 
 - [ ] **T38: Long-word title wrapping (do last; layout still evolving).** After the touch layout settles, ensure long titles such as “Good Vibrations - Remastered” wrap or elide cleanly within the Left Column's three-line limit in both themes, without clipping or overlapping other metadata. Verify on the actual 1024×600 layout.
+  - Progress: long-word wrapping/elision is implemented for track titles and the Bluetooth no-track title. QML layout tests cover Spotify and Bluetooth titles in both themes at 1024×600; **visual verification on the physical Pi panel remains**.
   - Learn: QML text measurement, word-wrap and elision under constrained layouts.
 
 ## Possible Improvements and Changes
