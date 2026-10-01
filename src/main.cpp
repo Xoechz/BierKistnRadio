@@ -4,6 +4,8 @@
 int main(int argc, char *argv[]) {
   if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
     qputenv("QT_QPA_PLATFORM", "wayland");
+  if (qEnvironmentVariableIsEmpty("QT_IM_MODULE"))
+    qputenv("QT_IM_MODULE", "qtvirtualkeyboard");
 
   QGuiApplication app(argc, argv);
   app.setOrganizationName("BierKistnRadio");

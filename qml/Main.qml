@@ -56,10 +56,11 @@ ApplicationWindow {
 
     InputPanel {
         id: keyboardPanel
-        z: parent.z + 100
+        parent: Overlay.overlay
+        z: 1
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        visible: Qt.inputMethod.visible
+        visible: active
     }
 }

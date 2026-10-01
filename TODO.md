@@ -149,6 +149,9 @@ Ordered work items for the BierKistn Radio UI. Each item is scoped to be one foc
 - [x] **T40: Restore passing QML theme tests.** `tst_qml` failed because `tests/tst_Theme.qml` expected dark `backgroundColor` `#121212` while `qml/Theme.qml` supplies `#151515`. Aligned the stale test expectation with the theme; `scripts/test.sh` passes both CTest targets without changing the application's color.
   - Learn: Qt Quick Test assertions, keeping theme expectations aligned with the actual design.
 
+- [x] **T41: Show the on-screen keyboard for Wi-Fi passwords.** Enable Qt Virtual Keyboard at app startup; when a secured SSID is selected in `WifiDialog`, focus the password field and show the keyboard above the modal popup. Keep the dialog's password field and Connect/Cancel buttons accessible while typing, and dismiss the keyboard when the dialog closes.
+  - Learn: `QT_IM_MODULE`, `InputPanel` stacking in `Overlay.overlay`, and adapting popup geometry to the keyboard.
+
 - [ ] **T38: Long-word title wrapping (do last; layout still evolving).** After the touch layout settles, ensure long titles such as “Good Vibrations - Remastered” wrap or elide cleanly within the Left Column's three-line limit in both themes, without clipping or overlapping other metadata. Verify on the actual 1024×600 layout.
   - Learn: QML text measurement, word-wrap and elision under constrained layouts.
 

@@ -8,9 +8,11 @@ Popup {
     id: root
     modal: true
     width: 520
-    height: 480
+    height: Math.min(480, Qt.inputMethod.visible && Qt.inputMethod.keyboardRectangle.y > 0
+                     ? Qt.inputMethod.keyboardRectangle.y : Overlay.overlay.height)
     closePolicy: Popup.CloseOnEscape
-    anchors.centerIn: Overlay.overlay
+    x: (Overlay.overlay.width - width) / 2
+    y: Qt.inputMethod.visible ? 0 : (Overlay.overlay.height - height) / 2
 
     property string selectedSsid: ""
     property string password: ""
@@ -21,6 +23,10 @@ Popup {
             root.password = ""
         }
         WifiController.scan()
+    }
+    onClosed: {
+        passwordField.focus = false
+        Qt.inputMethod.hide()
     }
 
     function strengthBars(strength) {
@@ -123,6 +129,9 @@ Popup {
                     root.password = ""
                     if (!modelData.secured && !WifiController.connecting) {
                         root.connectSelected()
+                    } else if (modelData.secured) {
+                        passwordField.forceActiveFocus()
+                        Qt.inputMethod.show()
                     }
                 }
             }
