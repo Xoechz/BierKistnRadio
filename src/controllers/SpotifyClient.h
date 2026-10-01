@@ -24,7 +24,8 @@ class SpotifyClient : public QObject {
   Q_PROPERTY(qint64 position READ position NOTIFY positionChanged)
   Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
   Q_PROPERTY(bool isSpotifyPlaying READ isSpotifyPlaying NOTIFY
-                 isSpotifyPlayingChanged)
+                  isSpotifyPlayingChanged)
+  Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
 
 public:
   explicit SpotifyClient(QObject *parent = nullptr);
@@ -38,6 +39,7 @@ public:
   qint64 position() const;
   qint64 duration() const;
   bool isSpotifyPlaying() const;
+  QString errorMessage() const;
 
   bool hasTrack() const;
   bool isAvailable() const;
@@ -64,6 +66,7 @@ signals:
   void isSpotifyPlayingChanged();
   void hasTrackChanged();
   void availableChanged();
+  void errorMessageChanged();
 
 private:
   QString m_title;
@@ -76,6 +79,8 @@ private:
   bool m_isSpotifyPlaying = false;
   bool m_hasTrack = false;
   bool m_available = false;
+  QString m_errorMessage;
+  quint64 m_commandGeneration = 0;
   QString m_mprisService;
   QDBusConnection m_bus;
   QString m_subscribedName;
@@ -95,6 +100,8 @@ private:
   void setTrackPresence(bool present);
   void setAvailable(bool available);
   void setDaemonPresent(bool present);
+  void setError(const QString &error);
+  void sendPlayerCommand(const QString &method, const QVariantList &args = {});
 
 private slots:
   // Slots referenced via QDBusConnection::connect(..., SLOT(...)). A slot needs

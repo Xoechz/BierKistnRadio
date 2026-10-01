@@ -1,8 +1,10 @@
 #include "SpotifyClient.h"
+#include "ControllerError.h"
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
 #include <QDBusServiceWatcher>
 #include <QTimer>
 
@@ -76,55 +78,66 @@ QString SpotifyClient::artUrl() const { return m_artUrl; }
 qint64 SpotifyClient::position() const { return m_position; }
 qint64 SpotifyClient::duration() const { return m_duration; }
 bool SpotifyClient::isSpotifyPlaying() const { return m_isSpotifyPlaying; }
+QString SpotifyClient::errorMessage() const { return m_errorMessage; }
 bool SpotifyClient::hasTrack() const { return m_hasTrack; }
 bool SpotifyClient::isAvailable() const {
   return !m_mprisService.isEmpty() || m_daemonPresent;
 }
 
 void SpotifyClient::play() {
-  if (m_mprisService.isEmpty()) {
-    return;
-  }
-  QDBusMessage msg = QDBusMessage::createMethodCall(m_mprisService, kPlayerPath,
-                                                    kPlayerInterface, "Play");
-  m_bus.send(msg);
+  sendPlayerCommand(QStringLiteral("Play"));
 }
 
 void SpotifyClient::pause() {
-  if (m_mprisService.isEmpty()) {
-    return;
-  }
-  QDBusMessage msg = QDBusMessage::createMethodCall(m_mprisService, kPlayerPath,
-                                                    kPlayerInterface, "Pause");
-  m_bus.send(msg);
+  sendPlayerCommand(QStringLiteral("Pause"));
 }
 
 void SpotifyClient::next() {
-  if (m_mprisService.isEmpty()) {
-    return;
-  }
-  QDBusMessage msg = QDBusMessage::createMethodCall(m_mprisService, kPlayerPath,
-                                                    kPlayerInterface, "Next");
-  m_bus.send(msg);
+  sendPlayerCommand(QStringLiteral("Next"));
 }
 
 void SpotifyClient::previous() {
-  if (m_mprisService.isEmpty()) {
-    return;
-  }
-  QDBusMessage msg = QDBusMessage::createMethodCall(
-      m_mprisService, kPlayerPath, kPlayerInterface, "Previous");
-  m_bus.send(msg);
+  sendPlayerCommand(QStringLiteral("Previous"));
 }
 
 void SpotifyClient::seek(qint64 positionMs) {
   if (m_mprisService.isEmpty() || m_trackId.path().isEmpty()) {
     return;
   }
+  sendPlayerCommand(QStringLiteral("SetPosition"),
+                    {QVariant::fromValue(m_trackId), positionMs * 1000});
+}
+
+void SpotifyClient::setError(const QString &error) {
+  if (m_errorMessage == error) {
+    return;
+  }
+  m_errorMessage = error;
+  emit errorMessageChanged();
+}
+
+void SpotifyClient::sendPlayerCommand(const QString &method,
+                                      const QVariantList &args) {
+  // No MPRIS session before a phone selects this speaker is normal.
+  if (m_mprisService.isEmpty()) {
+    return;
+  }
+  const quint64 generation = ++m_commandGeneration;
+  setError(QString());
   QDBusMessage msg = QDBusMessage::createMethodCall(
-      m_mprisService, kPlayerPath, kPlayerInterface, "SetPosition");
-  msg << QVariant::fromValue(m_trackId) << (positionMs * 1000);
-  m_bus.send(msg);
+      m_mprisService, kPlayerPath, kPlayerInterface, method);
+  msg.setArguments(args);
+  auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(msg), this);
+  connect(watcher, &QDBusPendingCallWatcher::finished, this,
+          [this, watcher, generation, method]() {
+            if (generation == m_commandGeneration && watcher->isError()) {
+              setError(controllerErrorText(
+                  QStringLiteral("Spotify %1").arg(method),
+                  watcher->error().name() + QStringLiteral(": ") +
+                      watcher->error().message()));
+            }
+            watcher->deleteLater();
+          });
 }
 
 void SpotifyClient::setAvailableForTest(bool available) {

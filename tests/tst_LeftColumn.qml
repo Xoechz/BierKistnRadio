@@ -12,6 +12,7 @@ TestCase {
         property string title: ""
         property string artist: "Artist"
         property string album: "Album"
+        property string errorMessage: ""
     }
 
     QtObject {
@@ -21,6 +22,7 @@ TestCase {
         property string trackTitle: ""
         property string trackArtist: "Artist"
         property string trackAlbum: "Album"
+        property string errorMessage: ""
     }
 
     QtObject {
@@ -52,6 +54,8 @@ TestCase {
         bluetooth.trackPublished = true
         bluetooth.trackTitle = ""
         bluetooth.connectedDeviceName = "Phone"
+        spotify.errorMessage = ""
+        bluetooth.errorMessage = ""
     }
 
     function cleanup() {
@@ -120,5 +124,21 @@ TestCase {
             checkTitleFits(noTrackTitle)
             bluetooth.trackPublished = true
         }
+    }
+
+    function test_sourceErrorsStayWithSelectedSource() {
+        var error = findChild(leftColumn, "sourceErrorLabel")
+        verify(error !== null)
+        compare(error.visible, false)
+        spotify.errorMessage = "Permission denied — check system config"
+        compare(error.visible, true)
+        compare(error.text, spotify.errorMessage)
+        facade.playbackState = PlaybackController.BluetoothWaiting
+        compare(error.visible, false)
+        bluetooth.errorMessage = "Bluetooth discoverability: timed out — try again"
+        compare(error.visible, true)
+        compare(error.text, bluetooth.errorMessage)
+        bluetooth.errorMessage = ""
+        compare(error.visible, false)
     }
 }

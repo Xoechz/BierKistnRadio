@@ -71,6 +71,7 @@ public:
 class MockMprisPlayer : public QDBusVirtualObject {
 public:
   QList<QDBusMessage> calls;
+  bool denyCommands = false;
   QVariantMap metadata{{QStringLiteral("xesam:title"), QStringLiteral("Initial Track")},
                        {QStringLiteral("xesam:artist"),
                         QStringList{QStringLiteral("First Artist"),
@@ -107,7 +108,13 @@ public:
       return true;
     }
     calls.append(message);
-    connection.send(message.createReply());
+    if (denyCommands) {
+      connection.send(message.createErrorReply(
+          QStringLiteral("org.freedesktop.DBus.Error.AccessDenied"),
+          QStringLiteral("Not authorized")));
+    } else {
+      connection.send(message.createReply());
+    }
     return true;
   }
 };
@@ -218,6 +225,8 @@ private slots:
   void testBluetoothDeviceRemoveClearsPlayerState();
   void testBluetoothAdapterStateObserved();
   void testBluetoothEnsureDiscoverableCallsSet();
+  void testBluetoothDiscoverabilityErrorAndRecovery();
+  void testBluetoothTransportErrorAndRecovery();
   void testBluetoothResolveTakeoverKeepDisconnectsNew();
   void testBluetoothResolveTakeoverSwitchDisconnectsOld();
   void testBluetoothTakeoverDisconnectFailureAndRetry();
@@ -229,6 +238,7 @@ private slots:
   void testBluetoothMuteDiscoversNodeAndMutes();
   void testBluetoothUnmuteIssuesSetMuteZero();
   void testBluetoothMuteCoversAllConnectedDevices();
+  void testBluetoothMuteCommandFailure();
   void testBluetoothNodeIdFromPwDump();
   void testBluetoothAvrcpResetsOnDeviceChange();
   void testBluetoothRetargetsPlayerAfterTakeover();
@@ -706,16 +716,24 @@ void TestControllers::testWifiControllerListsExistingAccessPoints() {
 
 void TestControllers::testWifiControllerScanError() {
   WifiController c;
+  QString failure = QStringLiteral("org.freedesktop.DBus.Error.AccessDenied");
   c.setDbusCallableForTest(
-      [](const QString &, const QString &, const QString &,
-         const QString &method, const QVariantList &,
-         const std::function<void(const QVariant &, const QString &)> &done) {
-        if (method == QStringLiteral("GetDevices")) {
-          done(QVariant(), QStringLiteral("org.freedesktop.DBus.Error.AccessDenied"));
-        }
-      });
+      [&failure](const QString &, const QString &, const QString &,
+          const QString &method, const QVariantList &,
+          const std::function<void(const QVariant &, const QString &)> &done) {
+         if (method == QStringLiteral("GetDevices")) {
+           done(QVariant(), failure);
+         }
+       });
   c.scan();
   QCOMPARE(c.errorMessage(), QStringLiteral("Permission denied — check system config"));
+  failure = QStringLiteral("org.freedesktop.DBus.Error.ServiceUnknown");
+  c.scan();
+  QCOMPARE(c.errorMessage(),
+           QStringLiteral("Wi-Fi device lookup: service unavailable — check system config"));
+  failure = QStringLiteral("org.freedesktop.DBus.Error.NoReply");
+  c.scan();
+  QCOMPARE(c.errorMessage(), QStringLiteral("Wi-Fi device lookup: timed out — try again"));
 }
 
 void TestControllers::testWifiControllerActivationResult() {
@@ -1026,6 +1044,57 @@ void TestControllers::testBluetoothEnsureDiscoverableCallsSet() {
   QVERIFY2(setCalled, "ensureDiscoverable() must call Properties.Set(Adapter1, Discoverable, true)");
 }
 
+void TestControllers::testBluetoothDiscoverabilityErrorAndRecovery() {
+  BluetoothClient c;
+  QCOMPARE(c.errorMessage(), QString());
+  c.ensureDiscoverable();
+  QCOMPARE(c.errorMessage(),
+           QStringLiteral("Bluetooth adapter unavailable — check system config"));
+
+  QString failure = QStringLiteral("org.freedesktop.DBus.Error.AccessDenied: denied");
+  c.setDbusCallableForTest(
+      [&failure](const QString &, const QString &, const QString &,
+                 const QString &, const QVariantList &,
+                 const std::function<void(const QVariant &, const QString &)> &finished) {
+        finished(QVariant(), failure);
+      });
+  c.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0"),
+                             QStringLiteral("org.bluez.Adapter1"), QVariantMap());
+  c.ensureDiscoverable();
+  QCOMPARE(c.errorMessage(),
+           QStringLiteral("Permission denied — check system config"));
+  failure = QStringLiteral("org.freedesktop.DBus.Error.NoReply: timed out");
+  c.ensureDiscoverable();
+  QCOMPARE(c.errorMessage(),
+           QStringLiteral("Bluetooth discoverability: timed out — try again"));
+  failure.clear();
+  c.ensureDiscoverable();
+  QCOMPARE(c.errorMessage(), QString());
+}
+
+void TestControllers::testBluetoothTransportErrorAndRecovery() {
+  BluetoothClient c;
+  QString failure = QStringLiteral("org.freedesktop.DBus.Error.ServiceUnknown");
+  c.setDbusCallableForTest(
+      [&failure](const QString &, const QString &, const QString &,
+                 const QString &, const QVariantList &,
+                 const std::function<void(const QVariant &, const QString &)> &finished) {
+        finished(QVariant(), failure);
+      });
+  const QString path = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
+  c.bluezObjectAddedForTest(path, QStringLiteral("org.bluez.Device1"),
+                             {{QStringLiteral("Connected"), true}});
+  c.bluezObjectAddedForTest(path + QStringLiteral("/player0"),
+                             QStringLiteral("org.bluez.MediaPlayer1"),
+                             {{QStringLiteral("Status"), QStringLiteral("playing")}});
+  c.next();
+  QCOMPARE(c.errorMessage(),
+           QStringLiteral("Bluetooth Next: service unavailable — check system config"));
+  failure.clear();
+  c.next();
+  QCOMPARE(c.errorMessage(), QString());
+}
+
 void TestControllers::testBluetoothResolveTakeoverKeepDisconnectsNew() {
   BluetoothClient c;
   QStringList disconnected;
@@ -1130,7 +1199,8 @@ void TestControllers::testBluetoothTakeoverDisconnectFailureAndRetry() {
   pendingReply(QVariant(), QStringLiteral("org.bluez.Error.NotAuthorized"));
   QVERIFY(c.takeoverPending());
   QVERIFY(!c.takeoverResolving());
-  QVERIFY(c.takeoverError().contains(QStringLiteral("NotAuthorized")));
+  QCOMPARE(c.takeoverError(),
+           QStringLiteral("Permission denied — check system config"));
   QCOMPARE(c.connectedDeviceName(), QStringLiteral("A"));
 
   c.resolveTakeover(BluetoothClient::SwitchToNew);
@@ -1300,12 +1370,12 @@ void TestControllers::testBluetoothMuteDiscoversNodeAndMutes() {
   QStringList calls;
   c.setCommandRunnerForTest(
       [&calls, pwDump](const QStringList &args,
-                       const std::function<void(const QByteArray &)> &onFinished) {
+                        const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args.join(QStringLiteral(" ")));
         if (args.first() == QStringLiteral("pw-dump")) {
-          onFinished(pwDump);
+          onFinished(pwDump, QString());
         } else {
-          onFinished(QByteArray());
+          onFinished(QByteArray(), QString());
         }
       });
   const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
@@ -1339,12 +1409,12 @@ void TestControllers::testBluetoothUnmuteIssuesSetMuteZero() {
   QStringList calls;
   c.setCommandRunnerForTest(
       [&calls, pwDump](const QStringList &args,
-                       const std::function<void(const QByteArray &)> &onFinished) {
+                        const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args.join(QStringLiteral(" ")));
         if (args.first() == QStringLiteral("pw-dump")) {
-          onFinished(pwDump);
+          onFinished(pwDump, QString());
         } else {
-          onFinished(QByteArray());
+          onFinished(QByteArray(), QString());
         }
       });
   const QString dA = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
@@ -1378,12 +1448,12 @@ void TestControllers::testBluetoothMuteCoversAllConnectedDevices() {
   QStringList calls;
   c.setCommandRunnerForTest(
       [&calls, pwDump](const QStringList &args,
-                       const std::function<void(const QByteArray &)> &onFinished) {
+                        const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args.join(QStringLiteral(" ")));
         if (args.first() == QStringLiteral("pw-dump")) {
-          onFinished(pwDump);
+          onFinished(pwDump, QString());
         } else {
-          onFinished(QByteArray());
+          onFinished(QByteArray(), QString());
         }
       });
   c.bluezObjectAddedForTest(
@@ -1411,6 +1481,32 @@ void TestControllers::testBluetoothMuteCoversAllConnectedDevices() {
   QVERIFY(muteCmds.contains(QStringLiteral("wpctl set-mute 35 1")));
   QVERIFY(muteCmds.contains(QStringLiteral("wpctl set-mute 41 1")));
   QCOMPARE(muteCmds.size(), 2);
+}
+
+void TestControllers::testBluetoothMuteCommandFailure() {
+  BluetoothClient c;
+  const QString address = QStringLiteral("AA:BB:CC:DD:EE:FF");
+  QString failure = QStringLiteral("Permission denied");
+  c.setCommandRunnerForTest(
+      [&failure](const QStringList &args,
+                 const std::function<void(const QByteArray &, const QString &)> &finished) {
+        if (args.first() == QStringLiteral("pw-dump")) {
+          finished(QByteArrayLiteral(
+              "[{\"id\":35,\"type\":\"PipeWire:Interface:Node\",\"info\":{\"props\":{"
+              "\"api.bluez5.address\":\"AA:BB:CC:DD:EE:FF\"}}}]"), QString());
+        } else {
+          finished(QByteArray(), failure);
+        }
+      });
+  c.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0/dev_A"),
+                             QStringLiteral("org.bluez.Device1"),
+                             {{QStringLiteral("Address"), address},
+                              {QStringLiteral("Connected"), true}});
+  c.setMuted(true);
+  QCOMPARE(c.errorMessage(), QStringLiteral("Permission denied — check system config"));
+  failure.clear();
+  c.setMuted(true);
+  QCOMPARE(c.errorMessage(), QString());
 }
 
 void TestControllers::testBluetoothNodeIdFromPwDump() {
@@ -1678,6 +1774,15 @@ void TestControllers::testSpotifyPrivateBusMprisLifecycle() {
     QCOMPARE(player.calls.at(4).arguments().at(0).value<QDBusObjectPath>().path(),
              QStringLiteral("/org/mpris/MediaPlayer2/Track/1"));
     QCOMPARE(player.calls.at(4).arguments().at(1).toLongLong(), qint64(12000000));
+
+    player.denyCommands = true;
+    client.next();
+    QTRY_COMPARE_WITH_TIMEOUT(client.errorMessage(),
+                              QStringLiteral("Permission denied — check system config"), 3000);
+    player.denyCommands = false;
+    client.next();
+    QTRY_COMPARE_WITH_TIMEOUT(player.calls.size(), 7, 3000);
+    QCOMPARE(client.errorMessage(), QString());
 
     QDBusMessage changed = QDBusMessage::createSignal(
         path, QStringLiteral("org.freedesktop.DBus.Properties"),

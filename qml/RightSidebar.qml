@@ -137,6 +137,15 @@ Rectangle {
                 maximumLineCount: 2
                 elide: Text.ElideRight
             }
+            Label {
+                Layout.fillWidth: true
+                text: PlaybackController.bluetooth.errorMessage
+                visible: text !== "" && PlaybackController.playbackState !== PlaybackController.BluetoothWaiting
+                         && PlaybackController.playbackState !== PlaybackController.BluetoothActive
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.errorColor
+                wrapMode: Text.Wrap
+            }
         }
 
         // ---------- Wi-Fi status ----------

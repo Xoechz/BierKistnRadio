@@ -1,4 +1,5 @@
 #include "WifiController.h"
+#include "ControllerError.h"
 
 #include <QDBusArgument>
 #include <QDBusConnection>
@@ -104,7 +105,8 @@ WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
                        QString error;
                        QVariant reply;
                        if (watcher->isError()) {
-                         error = watcher->error().message();
+                         error = watcher->error().name() + QStringLiteral(": ") +
+                                 watcher->error().message();
                        } else {
                           const QList<QVariant> args = watcher->reply().arguments();
                           if (!args.isEmpty()) {
@@ -416,14 +418,7 @@ void WifiController::failConnection(const QString &message) {
 
 QString WifiController::dbusErrorText(const QString &operation,
                                       const QString &error) {
-  if (error.contains(QStringLiteral("AccessDenied"), Qt::CaseInsensitive) ||
-      error.contains(QStringLiteral("NotAuthorized"), Qt::CaseInsensitive) ||
-      error.contains(QStringLiteral("permission"), Qt::CaseInsensitive) ||
-      error.contains(QStringLiteral("privilege"), Qt::CaseInsensitive) ||
-      error.contains(QStringLiteral("authoriz"), Qt::CaseInsensitive)) {
-    return QStringLiteral("Permission denied — check system config");
-  }
-  return operation + QStringLiteral(" failed: ") + error;
+  return controllerErrorText(operation, error);
 }
 
 void WifiController::disconnect() {

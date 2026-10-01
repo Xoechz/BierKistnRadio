@@ -28,6 +28,7 @@ class BluetoothClient : public QObject {
   Q_PROPERTY(bool takeoverResolving READ takeoverResolving NOTIFY
                  takeoverResolvingChanged)
   Q_PROPERTY(QString takeoverError READ takeoverError NOTIFY takeoverErrorChanged)
+  Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
   Q_PROPERTY(bool adapterPowered READ adapterPowered NOTIFY
                  adapterPoweredChanged)
   Q_PROPERTY(bool adapterDiscoverable READ adapterDiscoverable NOTIFY
@@ -62,6 +63,7 @@ public:
   QString takeoverIncomingName() const;
   bool takeoverResolving() const;
   QString takeoverError() const;
+  QString errorMessage() const;
   bool adapterPowered() const;
   bool adapterDiscoverable() const;
   bool adapterPairable() const;
@@ -97,10 +99,11 @@ public:
       const QString &interface, const QString &method, const QVariantList &args,
       const std::function<void(const QVariant &reply, const QString &error)> &onFinished)>;
   // Shell-out seam for `pw-dump`/`wpctl` (mute node discovery). `args` is the
-  // full argv including the program. `onFinished` receives stdout.
+  // full argv including the program. `onFinished` receives stdout and an
+  // error message (empty on success).
   using CommandRunner = std::function<void(
       const QStringList &args,
-      const std::function<void(const QByteArray &output)> &onFinished)>;
+      const std::function<void(const QByteArray &output, const QString &error)> &onFinished)>;
   void setDbusCallableForTest(const DbusCallable &callable);
   void setCommandRunnerForTest(const CommandRunner &runner);
 
@@ -132,6 +135,7 @@ signals:
   void takeoverIncomingNameChanged();
   void takeoverResolvingChanged();
   void takeoverErrorChanged();
+  void errorMessageChanged();
   void adapterPoweredChanged();
   void adapterDiscoverableChanged();
   void adapterPairableChanged();
@@ -181,6 +185,8 @@ private:
   void finishTakeoverAttempt(const QString &error = QString());
   void setTakeoverResolving(bool resolving);
   void setTakeoverError(const QString &error);
+  void setError(const QString &error);
+  void sendPlayerCommand(const QString &playerPath, const QString &method);
   void updateTakeoverIncoming();
   void setTakeoverPending(bool pending);
   void setTakeoverIncomingName(const QString &name);
@@ -228,6 +234,7 @@ private:
   QString m_takeoverIncomingName;
   QString m_takeoverTargetPath;
   QString m_takeoverError;
+  QString m_errorMessage;
   bool m_takeoverPending = false;
   bool m_takeoverResolving = false;
   quint64 m_takeoverAttempt = 0;

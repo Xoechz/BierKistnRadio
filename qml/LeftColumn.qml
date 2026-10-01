@@ -13,11 +13,30 @@ Rectangle {
 
     readonly property string btDeviceName: playback.bluetooth.connectedDeviceName
     readonly property bool btTrack: playback.bluetooth.trackPublished
+    readonly property string sourceError: {
+        switch (playbackState) {
+        case PlaybackController.BluetoothWaiting:
+        case PlaybackController.BluetoothActive:
+            return playback.bluetooth.errorMessage || ""
+        default:
+            return playback.spotify.errorMessage || ""
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.defaultSpacing
         spacing: Theme.defaultSpacing
+
+        Label {
+            objectName: "sourceErrorLabel"
+            Layout.fillWidth: true
+            visible: root.sourceError !== ""
+            text: root.sourceError
+            color: Theme.errorColor
+            font.pixelSize: Theme.fontSizeSmall
+            wrapMode: Text.Wrap
+        }
 
         // ---------- Hint / error text (non-active states) ----------
         Label {

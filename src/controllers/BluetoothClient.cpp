@@ -1,4 +1,5 @@
 #include "BluetoothClient.h"
+#include "ControllerError.h"
 
 #include <QDBusArgument>
 #include <QDBusConnection>
@@ -102,7 +103,8 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
                        QString error;
                        QVariant reply;
                        if (watcher->isError()) {
-                         error = watcher->error().message();
+                         error = watcher->error().name() + QStringLiteral(": ") +
+                                 watcher->error().message();
                        } else {
                          const QList<QVariant> args =
                              watcher->reply().arguments();
@@ -116,12 +118,28 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
   };
 
   m_runner = [](const QStringList &args,
-                const std::function<void(const QByteArray &)> &onFinished) {
+                const std::function<void(const QByteArray &, const QString &)> &onFinished) {
     auto *proc = new QProcess;
     QObject::connect(proc, &QProcess::finished, proc,
-                     [proc, onFinished](int, QProcess::ExitStatus) {
-                       onFinished(proc->readAllStandardOutput());
+                     [proc, onFinished](int code, QProcess::ExitStatus status) {
+                       QString error;
+                       if (code != 0 || status != QProcess::NormalExit) {
+                         error = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+                         if (error.isEmpty()) {
+                           error = status == QProcess::NormalExit
+                                       ? QStringLiteral("exit code %1").arg(code)
+                                       : QStringLiteral("process crashed");
+                         }
+                       }
+                       onFinished(proc->readAllStandardOutput(), error);
                        proc->deleteLater();
+                     });
+    QObject::connect(proc, &QProcess::errorOccurred, proc,
+                     [proc, onFinished](QProcess::ProcessError error) {
+                       if (error == QProcess::FailedToStart) {
+                         onFinished(QByteArray(), proc->errorString());
+                         proc->deleteLater();
+                       }
                      });
     proc->start(args.value(0), args.mid(1));
   };
@@ -255,6 +273,7 @@ QString BluetoothClient::takeoverIncomingName() const {
 }
 bool BluetoothClient::takeoverResolving() const { return m_takeoverResolving; }
 QString BluetoothClient::takeoverError() const { return m_takeoverError; }
+QString BluetoothClient::errorMessage() const { return m_errorMessage; }
 bool BluetoothClient::adapterPowered() const { return m_adapterPowered; }
 bool BluetoothClient::adapterDiscoverable() const {
   return m_adapterDiscoverable;
@@ -774,9 +793,8 @@ void BluetoothClient::resolveTakeover(TakeoverChoice choice) {
                  return;
                }
                if (!error.isEmpty()) {
-                 self->finishTakeoverAttempt(QStringLiteral(
-                                                 "Bluetooth disconnect failed — %1")
-                                                 .arg(error));
+                 self->finishTakeoverAttempt(controllerErrorText(
+                     QStringLiteral("Bluetooth disconnect"), error));
                }
                // A successful method reply is not proof of disconnection;
                // wait for Device1.Connected=false or InterfacesRemoved.
@@ -806,58 +824,72 @@ void BluetoothClient::setTakeoverError(const QString &error) {
   emit takeoverErrorChanged();
 }
 
-void BluetoothClient::ensureDiscoverable() {
-  if (m_adapterPath.isEmpty()) {
+void BluetoothClient::setError(const QString &error) {
+  if (m_errorMessage == error) {
     return;
   }
+  m_errorMessage = error;
+  emit errorMessageChanged();
+}
+
+void BluetoothClient::ensureDiscoverable() {
+  if (m_adapterPath.isEmpty()) {
+    setError(QStringLiteral("Bluetooth adapter unavailable — check system config"));
+    return;
+  }
+  setError(QString());
+  QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, m_adapterPath, kPropertiesInterface,
               QStringLiteral("Set"),
               QVariantList{kAdapterInterface, kDiscoverableProp,
                            QVariant::fromValue(QDBusVariant(true))},
-             [](const QVariant &, const QString &) {});
+              [self](const QVariant &, const QString &error) {
+                if (self && !error.isEmpty()) {
+                  self->setError(controllerErrorText(
+                      QStringLiteral("Bluetooth discoverability"), error));
+                }
+              });
 }
 
 void BluetoothClient::play() {
   const DeviceState &device = m_devices.value(m_activeDevicePath);
-  if (device.playerPath.isEmpty()) {
-    return;
-  }
-  m_dbusCall(kBlueZService, device.playerPath, kMediaPlayerInterface,
-             QStringLiteral("Play"), QVariantList(),
-             [](const QVariant &, const QString &) {});
+  sendPlayerCommand(device.playerPath, QStringLiteral("Play"));
 }
 
 void BluetoothClient::pause() {
   const DeviceState &device = m_devices.value(m_activeDevicePath);
-  if (device.playerPath.isEmpty()) {
-    return;
-  }
-  m_dbusCall(kBlueZService, device.playerPath, kMediaPlayerInterface,
-             QStringLiteral("Pause"), QVariantList(),
-             [](const QVariant &, const QString &) {});
+  sendPlayerCommand(device.playerPath, QStringLiteral("Pause"));
 }
 
 void BluetoothClient::next() {
   const DeviceState &device = m_devices.value(m_activeDevicePath);
-  if (device.playerPath.isEmpty()) {
-    return;
-  }
-  m_dbusCall(kBlueZService, device.playerPath, kMediaPlayerInterface,
-             QStringLiteral("Next"), QVariantList(),
-             [](const QVariant &, const QString &) {});
+  sendPlayerCommand(device.playerPath, QStringLiteral("Next"));
 }
 
 void BluetoothClient::previous() {
   const DeviceState &device = m_devices.value(m_activeDevicePath);
-  if (device.playerPath.isEmpty()) {
+  sendPlayerCommand(device.playerPath, QStringLiteral("Previous"));
+}
+
+void BluetoothClient::sendPlayerCommand(const QString &playerPath,
+                                        const QString &method) {
+  // AVRCP support is optional on the phone; missing player is not an error.
+  if (playerPath.isEmpty()) {
     return;
   }
-  m_dbusCall(kBlueZService, device.playerPath, kMediaPlayerInterface,
-             QStringLiteral("Previous"), QVariantList(),
-             [](const QVariant &, const QString &) {});
+  setError(QString());
+  QPointer<BluetoothClient> self(this);
+  m_dbusCall(kBlueZService, playerPath, kMediaPlayerInterface, method,
+             QVariantList(), [self, method](const QVariant &, const QString &error) {
+               if (self && !error.isEmpty()) {
+                 self->setError(controllerErrorText(
+                     QStringLiteral("Bluetooth %1").arg(method), error));
+               }
+             });
 }
 
 void BluetoothClient::setMuted(bool muted) {
+  setError(QString());
   if (m_muted != muted) {
     m_muted = muted;
     emit mutedChanged();
@@ -885,8 +917,12 @@ void BluetoothClient::setMuted(bool muted) {
 void BluetoothClient::setNodeMuted(const QString &address, bool muted) {
   QPointer<BluetoothClient> self(this);
   m_runner(QStringList{QStringLiteral("pw-dump")},
-           [self, muted, address](const QByteArray &output) {
+           [self, muted, address](const QByteArray &output, const QString &error) {
              if (!self) {
+               return;
+             }
+             if (!error.isEmpty()) {
+               self->setError(controllerErrorText(QStringLiteral("Bluetooth audio lookup"), error));
                return;
              }
              const int nodeId = bluetoothNodeIdFromPwDump(output, address);
@@ -898,7 +934,12 @@ void BluetoothClient::setNodeMuted(const QString &address, bool muted) {
                                         QString::number(nodeId),
                                         muted ? QStringLiteral("1")
                                               : QStringLiteral("0")},
-                            [](const QByteArray &) {});
+                            [self](const QByteArray &, const QString &error) {
+                              if (self && !error.isEmpty()) {
+                                self->setError(controllerErrorText(
+                                    QStringLiteral("Bluetooth audio mute"), error));
+                              }
+                            });
            });
 }
 
@@ -910,9 +951,18 @@ void BluetoothClient::assertDeviceMute(const QString &address) {
 
 void BluetoothClient::pauseAll() {
   for (auto it = m_playerOwners.cbegin(); it != m_playerOwners.cend(); ++it) {
+    QPointer<BluetoothClient> self(this);
     m_dbusCall(kBlueZService, it.key(), kMediaPlayerInterface,
                QStringLiteral("Pause"), QVariantList(),
-               [](const QVariant &, const QString &) {});
+               [self](const QVariant &, const QString &error) {
+                 if (self && !error.isEmpty()) {
+                   const QString message = controllerErrorText(
+                       QStringLiteral("Bluetooth pause"), error);
+                   if (message == QStringLiteral("Permission denied — check system config")) {
+                     self->setError(message);
+                   }
+                 }
+               });
   }
 }
 
