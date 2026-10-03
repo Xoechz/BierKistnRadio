@@ -2,7 +2,7 @@
 
 This document defines the contract between the **BierKistn Radio UI** (this repo) and the **NixOS system repository** that consumes it as a flake input. The system repo is responsible for providing the runtime environment described here; the app assumes all of it is in place and does not configure any of it itself.
 
-**Feedback handoff:** §15 records the *planned* changes to source lifecycle and Bluetooth pairing. Sections 2–14 describe the existing runtime contract and implementation status until the corresponding tasks are delivered. In particular, §15 will supersede the always-on/auto-accept assumptions in §3, §11, §13, §14 and ADR 0008 after implementation.
+**Feedback handoff:** §15 records the implemented app-side source lifecycle and pairing interface, the inspected NixOS configuration, and remaining system changes/target verification. [ADR 0009](./docs/adr/0009-exclusive-source-lifecycle.md) supersedes mute/pause-only switching. Repository inspection is not evidence that the Pi has deployed or passed this contract.
 
 For architectural rationale, see [ADR 0001](./docs/adr/0001-mpris2-mopidy-as-playback-abstraction.md) and [ADR 0002](./docs/adr/0002-tech-stack.md). For domain terminology, see [CONTEXT.md](./CONTEXT.md).
 
@@ -49,6 +49,7 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 | Controller      | Service                                                 | Role                                                                                                                                                                                                                                    |
 |-----------------|---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `SpotifyClient` | MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`) | Track metadata, transport (play/pause/next/previous/seek), position. Present once spotifyd is connected to Spotify; whether a track is loaded indicates active playback (see [ADR 0005](./docs/adr/0005-drop-rs-spotifyd-controls.md)). |
+| `SpotifyServiceClient` | `org.freedesktop.systemd1` | Loads and observes the kiosk user's `spotifyd.service`; requests `StartUnit`/`StopUnit` for ordered source transitions. Service readiness is independent of MPRIS. |
 | `ArtCache`      | —                                                       | Reads `mpris:artUrl` values (remote `https://` URLs from Spotify CDN)                                                                                                                                                                   |
 
 **Note on the `$PID` suffix:** spotifyd's well-known names include its PID, which changes on restart. The app discovers the MPRIS2 name dynamically by listing bus names and matching `org.mpris.MediaPlayer2.spotifyd.*`, or uses `QDBusServiceWatcher` with a name match. The system repo must not hardcode the PID.
@@ -58,21 +59,21 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 | Controller           | Service                          | Role                                                                                                                                                           |
 |----------------------|----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `WifiController`     | `org.freedesktop.NetworkManager` | Scan, connect, disconnect, connection state                                                                                                                    |
-| `BluetoothClient`    | `org.bluez`                      | `Device1` state (connected device, takeover kick), `MediaPlayer1` for best-effort AVRCP transport/metadata, `org.freedesktop.DBus.Properties.Set` on `Adapter1` for the `Discoverable` re-assertion |
+| `BluetoothClient`    | `org.bluez`                      | Device state/takeover, AVRCP, adapter power writes and local A2DP Sink UUID observation, discoverability, and the owned pairing agent |
 | `PlaybackController` | —                                | Facade only; no D-Bus of its own. Routes transport to `SpotifyClient` / `BluetoothClient`.                                                                     |
 
 ### Bluetooth connection model
 
-The Bluetooth sink is **phone-driven** — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md). The app's `BluetoothClient` handles **connection state only** and never initiates pairing, discovery, or connection. The system repo owns:
+The Bluetooth sink is **phone-driven** — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md). The app observes connections, powers the adapter for source switching, and confirms incoming pairing requests; it never initiates pairing, device discovery, or a phone connection. The system repo owns:
 
-- **Always discoverable + pairable (base policy).** Adapter set to `Discoverable=true`, `Pairable=true`, `DiscoverableTimeout=0` (persist), `AutoEnable=true`, `Powered=true`. BlueZ automatically drops `Discoverable` once a device connects, so the base policy is NOT re-asserted by an ongoing system service. Instead, the **app re-asserts** `Discoverable=true` on the adapter via `org.freedesktop.DBus.Properties.Set("org.bluez.Adapter1", "Discoverable", true)` whenever the user switches to the Bluetooth source while no device is connected (`BluetoothWaiting`). The app has no Discoverable *toggle*, but it does issue this one-shot assertion on entering `BluetoothWaiting`. The kiosk user must be authorized to write that BlueZ property.
+- **Radio off at boot; discoverable while Bluetooth is ready.** Set `powerOnBoot=false`, `AutoEnable=false`, and `DiscoverableTimeout=0`. Preserve the adapter's pairable policy. The app writes `Powered` for source switching and re-asserts `Discoverable=true` when Bluetooth becomes ready without a connected phone, or the last phone disconnects. There is no discoverability toggle or always-on radio service. Authorize these adapter property writes and the confirmation-capable app agent described in §15.2.
 - **A2DP-sink-only role** in WirePlumber: `bluez5.roles = [ a2dp_sink ]`, `device.profile = "a2dp-sink"`, `bluez5.auto-connect = []`, and `bluez5.enable-sbc-xq = true` for high-quality SBC codec.
 
 The app observes `org.bluez.Device1` objects (`PropertiesChanged` for `Connected`/`Name`) and calls `Device1.Disconnect()` to kick a device. **Takeover**: when a second phone connects while one is active, the app shows a modal dialog ("Keep <current> or switch to <new>?", default keep after 10 s) and disconnects accordingly — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md).
 
 **Best-effort AVRCP controls (ADR 0006):** when a device is connected, the app offers best-effort transport/metadata via `org.bluez.MediaPlayer1` on the device's `playerN` path. This is a playback layer; the *connection* model is unchanged and remains phone-driven. No new daemon or polkit surface is required beyond what the phone-driven model already grants the kiosk user, but the polkit rule must authorize the kiosk user for `org.bluez.MediaPlayer1` method calls (Play/Pause/Next/Previous) on connected devices.
 
-**Audio exclusivity mute (ADR 0006):** to guarantee no audio overlap when switching sources, the app mutes the A2DP stream by finding the connected device's bluez audio PipeWire node — **matched by `api.bluez5.address` (the connected MAC), not by a hardcoded node name**. The node's name shape is device/profile-dependent (e.g. `bluez_input.<MAC>.2` or `bluez_output.<MAC>.a2dp-sink`; a Samsung phone surfaced as `bluez_input.<MAC>.2` on mainline). It then runs `wpctl set-mute <node id>`. It does **not** mute `@DEFAULT_AUDIO_SINK@` (spotifyd shares that path). The mute is re-asserted whenever a BT stream appears while the app is in a Spotify state, and cleared on switching back to Bluetooth. The system repo must ensure `pw-cli` and `pw-dump` are on PATH (they ship with `pipewire`, already required). The phone's A2DP transport is intentionally **not** disconnected by this — the stream is kept "captured" but inaudible.
+**Source exclusivity (ADR 0009):** the app observes spotifyd stopped before enabling Bluetooth, and observes the adapter off before starting spotifyd. Powering off disconnects phones. Per-device mute/AVRCP pause remain supplemental safeguards and takeover tools, not proof of shutdown. Mute node discovery matches `api.bluez5.address`, never a hardcoded node name or the shared `@DEFAULT_AUDIO_SINK@`. Keep `pw-dump` and `wpctl` on PATH.
 
 **logind active-session requirement:** BlueZ/PipeWire only expose Bluetooth device/nodes to the **active logind session**. The kiosk user must hold the active seat (cage creates the session) or Bluetooth devices will not appear. If seat-monitoring interferes, set `monitor.bluez.seat-monitoring = disabled` in WirePlumber.
 
@@ -175,12 +176,12 @@ The app offers Reboot / Power Off buttons via `PowerController` (TODO T19 — co
 
 This list is as important as what it does — it defines the boundary.
 
-- Does **not** configure or start spotifyd, NetworkManager, BlueZ, PipeWire, or wireplumber.
+- Does **not** configure system services or start NetworkManager, BlueZ, PipeWire, or WirePlumber. It does request start/stop of the kiosk user's `spotifyd.service` and adapter power changes for source switching.
 - Does **not** write spotifyd config, network config, or bluetooth config files.
 - Does **not** manage the cage compositor or Wayland output configuration.
 - Does **not** set up or manage the polkit / soteria agent.
 - Does **not** create or manage the kiosk user account.
-- Does **not** coordinate audio exclusivity between spotifyd and Bluetooth A2DP **except for the toggle mute** — the explicit source toggle mutes the outgoing BT stream (ADR 0006) to guarantee no overlap; passive BT connects and automatic events never trigger pause/mute. Audio overlap is otherwise the user's responsibility.
+- Does **not** enable the incoming source until the outgoing source is observed disabled; failures keep the requested source selected with an error and manual Retry. Passive observations never repeatedly launch a failed service.
 - Does **not** route Bluetooth audio — PipeWire/wireplumber handles that. The app only observes an A2DP source connect (state) and, when muted per the ADR 0006 invariant, silences the bluez sink node via `wpctl set-mute`.
 - Does **not** provide a desktop file, systemd service, or D-Bus service file.
 
@@ -204,7 +205,7 @@ For the full kiosk experience, the system repo's cage configuration should launc
 
 ## 13. Implementation status — confirmed present
 
-Verified against `modules/bierkistn.nix` and `modules/hosts/piKistn.nix` in the system repo (as of this writing). The following contract items are correctly implemented:
+Inspected in `modules/bierkistn.nix` and `modules/hosts/piKistn.nix` in the system repo. These declarations are present; deployed behavior still requires target verification:
 
 | Contract requirement                                                                                                                                        | Where                                                                                                          |
 |-------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
@@ -214,8 +215,8 @@ Verified against `modules/bierkistn.nix` and `modules/hosts/piKistn.nix` in the 
 | Writable home / `XDG_CACHE_HOME=/home/kistn/.cache` (ArtCache §7, §8)                                                                                       | `services.cage.environment`                                                                                    |
 | spotifyd as a **systemd user service** so it shares the kiosk user's session bus (MPRIS2 on session bus, §3)                                                | `bierkistn.nix` Home Module `bierkistn` (`systemd.user.services.spotifyd`, `--config-path /etc/spotifyd.conf`) |
 | `use_mpris = true` + `device_name = hostname` + 320kbps                                                                                                     | `environment.etc.spotifyd.conf`                                                                                |
-| Always discoverable + pairable base policy (`Discoverable`/`Pairable`/`DiscoverableTimeout=0`) with `AutoEnable=true` (`Powered` implicit via `AutoEnable`) | `bierkistn.nix` `hardware.bluetooth.settings.General`                                                          |
-| Auto-accept pairing (NoInputNoOutput, kiosk has no display)                                                                                                 | `systemd.services.bt-agent`                                                                                    |
+| Bluetooth off at boot (`powerOnBoot=false`, `AutoEnable=false`) | `bierkistn.nix` `hardware.bluetooth` |
+| No competing auto-accept pairing service defined in the inspected module | `bierkistn.nix`; deployed agent ownership remains T42 verification |
 | A2DP-sink-only + best-effort AVRCP (roles, `auto-connect = []`, `enable-sbc-xq`, `dummy-avrcp-player`, `device.profile`)                                    | `services.pipewire.wireplumber.extraConfig."10-bierkistn"`                                                     |
 | PipeWire/WirePlumber started under the kiosk session (no graphical-session dependency)                                                                      | `systemd.user.services.{pipewire,wireplumber}.wantedBy = default.target`                                       |
 | **Power controls** polkit grant (`org.freedesktop.login1.*` for Reboot/Power Off, §10)                                                                      | `security.polkit.extraConfig`                                                                                  |
@@ -223,30 +224,31 @@ Verified against `modules/bierkistn.nix` and `modules/hosts/piKistn.nix` in the 
 
 ## 14. Missing / not-yet-implemented configurations
 
-These contract items are **NOT** satisfied by the current system-module config:
+These interface details still need implementation or on-device verification:
 
-### 14.1 BlueZ polkit grant (BluetoothClient D-Bus actions) — gap
+### 14.1 BlueZ D-Bus authorization — verify on target
 
 The interface requires the kiosk user be authorized for the **BlueZ** actions `BluetoothClient`/`WifiController` call (see §3 *Polkit*):
 
-- `org.freedesktop.DBus.Properties.Set` on `org.bluez.Adapter1.Discoverable` — the one-shot re-assertion on entering `BluetoothWaiting` (§3 *Bluetooth connection model*).
+- `org.freedesktop.DBus.Properties.Set` on `org.bluez.Adapter1.Powered` and `Discoverable` — lifecycle and Bluetooth waiting (§3).
 - `org.bluez.MediaPlayer1` method calls (Play/Pause/Next/Previous best-effort AVRCP) — explicitly required by §3 *Best-effort AVRCP controls*.
 - `org.bluez.Device1.Disconnect` — the takeover "kick" (§3).
+- AgentManager1 registration/default-agent/unregistration and `Device1.CancelPairing` — incoming pairing confirmation (§15.2).
 
-The current `security.polkit.extraConfig` rule grants **only** `org.freedesktop.NetworkManager.*` and `org.freedesktop.login1.*`. **No BlueZ action is granted.**
+The inspected `security.polkit.extraConfig` includes a broad `org.bluez.*` rule alongside NetworkManager and login1. This is not proof that BlueZ's actual system-bus policy grants the required calls.
 
 This may not bite in practice because BlueZ's net-effect is often gated by the caller being the active session user and a member of the `bluetooth` group (the kiosk user holds the active seat under cage and is in `extraGroups.bluetooth`), rather than by polkit. **Action:** verify on-device whether `Properties.Set` for `Adapter1.Discoverable`, `Device1.Disconnect`, and `MediaPlayer1.Play/Pause/Next/Previous` succeed for the `kistn` user; if policy-rejected, investigate the actual BlueZ D-Bus policy/authorization mechanism before granting access. A `Properties.Set` call uses the standard D-Bus interface, so a polkit rule matching only an `org.bluez.*` action name is not by itself proof of authorization.
 
 ### 14.2 Room-note: `Powered` and seat-monitoring
 
-- `Powered = true` is not set explicitly, but `AutoEnable = true` powers the adapter at boot — treated as satisfied, no action needed.
+- The adapter boots off (`powerOnBoot=false`, `AutoEnable=false`), and the app owns explicit source-driven power changes. Add `DiscoverableTimeout=0` as recommended in §15.1 and verify local A2DP Sink readiness after power-on.
 - `monitor.bluez.seat-monitoring` is unset (default). The logind active-session note in §3 is a *conditional* ("if seat-monitoring interferes") — only address if Bluetooth nodes fail to appear in practice.
 
 ---
 
 ## 15. Planned system-repo handoff (feedback)
 
-**Status: agreed design, not yet implemented.** The system configuration lives in `~/NyxOS`; its separate agent owns system-repo edits. This section is the interface specification for TODO T29/T32 (system) and T30/T31/T33 (app). Keep the existing contract above as the description of what currently runs until both sides are updated and verified on the Pi. The new source policy replaces ADR 0008's mute/pause-only exclusivity mechanism once implemented; update that ADR and the older always-on language here at the same time.
+**Status: T30/T33 app interfaces implemented; NixOS repository inspected; Pi deployment/verification pending.** The system configuration lives in `~/NyxOS`; its separate agent owns system-repo edits. This section is the interface specification for TODO T29/T32 (system) and T30/T31/T33 (app). Source switching follows ADR 0009. The full-screen loading overlay remains T31.
 
 ### 15.1 Exclusive source lifecycle
 
@@ -257,6 +259,27 @@ This may not bite in practice because BlueZ's net-effect is often gated by the c
 - **Application/system interface:** expose a reliable way for the kiosk app to request and observe start/stop/status of **its own spotifyd user unit**, and to read/write `org.bluez.Adapter1.Powered` over the system bus. Preserve the shared user session bus for MPRIS. Make the user-unit policy compatible with an intentional stop (no immediate automatic resurrection); keep daemon crash recovery compatible with the selected source. Grant the kiosk user only the necessary service-management/BlueZ D-Bus permissions and surface denial to the app as an error. The system repo owns unit policy and authorization; the C++ controllers own calls, ordering, and UI state. Agree on the concrete unit name and status interface when wiring the two sides.
 - **Loading and errors:** the app overlays a translucent gray modal loading view and indicator during the entire source transition (outgoing shutdown and incoming startup), for at most **10 s**. On failure/timeout it removes the overlay, keeps the *requested* source selected, shows a visible error and Retry action, and keeps observing readiness for recovery; passive polling does not repeatedly launch a failed unit. A Bluetooth connection is not required to end loading, and Spotify MPRIS presence is not a startup prerequisite. The app must also surface permission-denied errors.
 - **System-agent verification:** on the Pi, verify Spotify is available at boot and the BT radio is off; switching to Bluetooth removes Spotify Connect and allows a phone to connect and stream; switching back powers off BT, disconnects the phone, and restores Spotify Connect. Check transition ordering, user-service restarts, permissions, 10-second timeout/failure/recovery, and no overlapping audio.
+
+#### Concrete app interface
+
+- `SpotifyServiceClient` uses the **session bus**, service `org.freedesktop.systemd1`, manager object `/org/freedesktop/systemd1`, interface `org.freedesktop.systemd1.Manager`. It calls `LoadUnit("spotifyd.service")`, `StartUnit("spotifyd.service", "replace")`, and `StopUnit("spotifyd.service", "replace")`. This is the kiosk user's manager, not PID 1; no broad system-manager polkit grant is needed for managing the user's own unit.
+- Observe `org.freedesktop.systemd1.Unit.ActiveState` via `Properties.GetAll` on the object path returned by `LoadUnit`. `active` counts as running; `inactive`/`failed` count as stopped. Activating/deactivating states are not readiness. Method job paths acknowledge requests, not their completion. Reads are asynchronous, bounded to 5 seconds, and ignore pre-command/stale replies.
+- `BluetoothClient` discovers the adapter through BlueZ ObjectManager, sets `Adapter1.Powered` using `Properties.Set` with a D-Bus variant boolean, and confirms it through fresh property reads/signals. Bluetooth-ready additionally requires `Adapter1.UUIDs` to contain local A2DP Sink UUID `0000110b-0000-1000-8000-00805f9b34fb`.
+- Both clients passively poll status every 500 ms; polling never repeats lifecycle commands. The facade bounds the whole transition to 10 seconds and exposes `switching`, `sourceReady`, `sourceError`, and `retrySource()` to QML. Timeout freezes command progression. Late readiness clears the error if the already-requested operation completes; a late outgoing shutdown requires Retry if incoming startup was never issued.
+
+#### T29 repository analysis and suggested NixOS changes
+
+Inspection of `~/NyxOS/modules/bierkistn.nix` and `modules/hosts/piKistn.nix` found the concrete unit name already matches `spotifyd.service`. The Home Manager service is wanted by `default.target`, uses `Restart="on-failure"`/`RestartSec=12`, and shares the kiosk user's bus. Bluetooth already has `powerOnBoot=false`/`AutoEnable=false`; PipeWire and WirePlumber are wanted by the user session's `default.target`. Keep these settings.
+
+Changes for the system-repo agent:
+
+1. Remove `spotifyd.Unit.After = [ "default.target" ]`. Because `default.target` wants spotifyd and normally orders itself after its wanted services, the reverse `After` can create an ordering cycle. If explicit audio startup ordering is desired, use `Unit.After` and `Unit.Wants` for `pipewire.service` and `wireplumber.service` instead.
+2. Add explicit `spotifyd.Service.TimeoutStartSec` and `TimeoutStopSec` values, suggested `3` seconds each, leaving time for adapter changes and observation within the app's 10-second budget. Preserve `Restart="on-failure"`, and do not add socket/timer/watchdog policy that resurrects intentionally stopped spotifyd.
+3. Add `hardware.bluetooth.settings.General.DiscoverableTimeout = 0`; the current module omits it, leaving BlueZ's default discovery timeout. The app makes the radio discoverable after Bluetooth readiness but does not repeatedly renew discovery.
+4. Verify cage and spotifyd use the same `kistn` user session bus and that adapter `Powered` writes succeed there. The module's broad `org.bluez.*` polkit rule is not proof of actual BlueZ D-Bus authorization; upstream BlueZ normally allows calls to its service through bus policy. Change the actual system-bus policy only if the target rejects the required calls.
+5. Deploy app and system revisions together and run the transition checks above. Verify the local A2DP Sink UUID is published by WirePlumber; `Powered=true` alone must not hide an unavailable sink.
+
+These are source-inspection findings and recommendations, not a NixOS build or an on-device verification result.
 
 ### 15.2 Pairing confirmation
 

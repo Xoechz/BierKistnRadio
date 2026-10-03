@@ -23,15 +23,15 @@ The persistent top strip showing the clock (left), the Source toggle (center), a
 The default and only view. A three-column layout: Left Column (metadata), Center Column (album art + progress + transport), Right Sidebar (volume + statuses + Wi-Fi settings). Has a Bluetooth Mode variant for Bluetooth-sink playback.
 
 **Bluetooth Mode**:
-The Now-Playing variant shown when the speaker is acting as a Bluetooth sink. No scrubber (a passive non-interactive progress bar may show `Position` while the phone publishes it and `duration > 0`). Best-effort AVRCP transport (Play/Pause/Next/Previous) is shown in the Center Column **only while the phone publishes `Status`**; metadata (title/artist/album) **only while `Track` is published**, with title suffixed "via \<device name\>"; when `Track` is not published → "Controlled by \<Paired Device\>" as title, "No metadata available" as subtitle. Paired Device still owns playback initiation; the speaker only silences outgoing audio during a Spotify state via the Mute Invariant (see [ADR 0008](./adr/0008-two-sided-audio-exclusivity.md)). Only **one active phone** is audible; a second connect is arbitrated by Takeover, not added to the mix. Bluetooth Mode is **opt-in** — a phone connecting via BT does NOT automatically enter Bluetooth Mode. The user must explicitly tap the Source toggle to switch. Has two sub-states: `BluetoothWaiting` (no device connected yet, show "Discoverable — connect your phone") and `BluetoothActive` (device connected, show metadata or "Controlled by \<Paired Device\>").
+The Now-Playing variant for receiving audio from a phone over Bluetooth, selected explicitly by the user. The phone owns playback initiation; only one active phone is audible, with competing phones handled by Takeover.
 _Avoid_: bluetooth screen, passthrough, sink mode (renamed).
 
 **Source**:
-The user-selectable playback input: Spotify or Bluetooth sink. Toggled from the Status Bar — tapping the Source toggle switches between spotifyd (MPRIS2) and BT A2DP sink (PipeWire-routed audio). The **shown** Source is the layout the UI renders; audio exclusivity ([**Mute Invariant**](#mute-invariant)) guarantees only the shown Source is actually audible. The current Source is derivable from `PlaybackController.playbackState`.
+The user-selected playback input: Spotify or Bluetooth sink. The shown Source remains the user's requested choice during startup or failure; being selected does not itself mean the Source is ready to play.
 _Avoid_: input, mode, Source Selection (obsolete — the view was removed).
 
 **Right Sidebar**:
-The ~250px panel on the right side of the Now-Playing view. Always visible. Contains: a volume slider, dark mode toggle, Bluetooth status text, Wi-Fi status text, and a "Wifi Settings" button that opens the Wi-Fi Dialog. Source-independent — shows the same content regardless of playback state. The Bluetooth status shows "Connected to \<name>" in **any** Source state and appends "· Muted" while that stream is silenced by the Mute Invariant.
+The persistent side panel containing shared volume, theme, connectivity status, and the button opening the Wi-Fi Dialog. It is visible regardless of the selected Source.
 
 **Left Column**:
 The ~200px panel on the left side of the Now-Playing view. Shows metadata depending on playback state: track title, artist, album (SpotifyActive); error/hint text (SpotifyUnavailable/SpotifyWaiting/BluetoothWaiting); or device-connected metadata (BluetoothActive).
@@ -70,7 +70,7 @@ A Bluetooth device that has completed pairing with the speaker. May be connected
 _Avoid_: connected device (a paired device may be disconnected).
 
 **Discoverable**:
-The speaker's Bluetooth radio state that allows new phones to find and pair with it. The NixOS system config sets it always on as the base policy; BlueZ drops it on connect, so the **app re-asserts `Discoverable=true` when the user switches to Bluetooth with no device connected**. There is no toggle in the UI.
+The speaker's Bluetooth state in which new phones can find it for pairing. It is relevant while Bluetooth is the ready, selected Source; the radio is unavailable in Spotify mode.
 _Avoid_: pairing mode, discoverable toggle (there is none).
 
 **Takeover**:
@@ -81,5 +81,12 @@ The role the speaker plays over Bluetooth: it _receives_ an audio stream from a 
 _Avoid_: Bluetooth source (the speaker is never the Bluetooth source).
 
 **Mute Invariant**:
-The audio-exclusivity guarantee that only the **shown** Source is audible (see [ADR 0008](./adr/0008-two-sided-audio-exclusivity.md)). Whenever Spotify is the audible source, every connected BT A2DP node is muted (and best-effort AVRCP-paused); whenever Bluetooth is audible, spotifyd is paused (spotify's output shares the physical sink, so "muting" it is pausing, not node-muting). The silence is re-asserted whenever a stream of the inactive Source appears, and it is **unmuted only by switching to / entering that Source** — the app never auto-plays. Pausing spotifyd is not an audible-vs-visible state change: Bluetooth Mode shows "· Muted" on the silenced, connected stream.
-_Avoid_: hard mute, overlap (the same guarantee as **Mute Invariant**).
+The historical name for the mute/pause-only exclusivity policy, superseded by Source Exclusivity. Muting still describes silencing a stream, but does not establish that a Source has shut down.
+_Avoid_: using Mute Invariant for the current source-switching policy.
+
+**Source Exclusivity**:
+The guarantee that the outgoing Source is disabled before the requested Source becomes available, so the two Sources are not enabled to play together. A failed transition retains the requested Source with an error rather than enabling it alongside an outgoing Source that has not shut down.
+_Avoid_: mute invariant (the previous mechanism).
+
+**Source Readiness**:
+The selected Source's availability for a phone to initiate playback, while the other Source is disabled. It does not require a phone connection, a loaded Track, or active playback.

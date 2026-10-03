@@ -1,5 +1,7 @@
 # Two-sided audible-Source exclusivity (mute + pause both directions)
 
+**Status: superseded by [ADR 0009](./0009-exclusive-source-lifecycle.md) for source switching.** The historical mute/pause policy below is no longer the primary exclusivity mechanism. Its per-device muting semantics remain useful as supplemental safeguards and for takeover.
+
 Audio exclusivity is **no longer one-sided**. At any moment exactly the **active Source's** streams are audible; the inactive Source is **muted and paused** — when you switch away *and* whenever one of its streams appears while the other mode is active. This supersedes and amends ADR 0006 decisions 10–13.
 
 ## Context

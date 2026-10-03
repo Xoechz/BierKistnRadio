@@ -106,7 +106,7 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
     QDBusMessage msg =
         QDBusMessage::createMethodCall(service, objectPath, interface, method);
     msg.setArguments(args);
-    QDBusPendingCall pending = bus.asyncCall(msg);
+    QDBusPendingCall pending = bus.asyncCall(msg, 5000);
     auto *watcher = new QDBusPendingCallWatcher(pending);
     QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher,
                      [watcher, onFinished]() {
@@ -176,6 +176,9 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
             }
           });
   refreshManagedObjects();
+  m_adapterPoll.setInterval(500);
+  connect(&m_adapterPoll, &QTimer::timeout, this, &BluetoothClient::refreshAdapterState);
+  m_adapterPoll.start();
 }
 
 void BluetoothClient::subscribeObjectManager() {
@@ -205,10 +208,11 @@ void BluetoothClient::subscribeObjectManager() {
 
 void BluetoothClient::refreshManagedObjects() {
   const quint64 generation = ++m_objectManagerGeneration;
+  const quint64 adapterRevision = m_adapterReadGeneration;
   QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, kBlueZRoot, kObjectManagerInterface,
               QStringLiteral("GetManagedObjects"), QVariantList(),
-              [self, generation](const QVariant &reply, const QString &error) {
+              [self, generation, adapterRevision](const QVariant &reply, const QString &error) {
                 if (!self || generation != self->m_objectManagerGeneration) {
                   return;
                 }
@@ -240,6 +244,12 @@ void BluetoothClient::refreshManagedObjects() {
                        ++it) {
                     if (it.key() == kMediaPlayerInterface) {
                       players.insert(path.path(), it.value());
+                    } else if (it.key() == kAdapterInterface &&
+                               adapterRevision != self->m_adapterReadGeneration &&
+                               !self->m_adapterPath.isEmpty()) {
+                      // A live update/newer adapter read supersedes this old
+                      // snapshot, even while other objects still need loading.
+                      continue;
                     } else {
                       self->applyInterfaceAdded(path.path(), it.key(), it.value());
                     }
@@ -250,11 +260,19 @@ void BluetoothClient::refreshManagedObjects() {
                   self->applyInterfaceAdded(it.key(), kMediaPlayerInterface,
                                             it.value());
                 }
+                if (self->m_adapterPath.isEmpty()) {
+                  self->m_adapterStateKnown = true;
+                }
+                emit self->adapterStateChanged();
               });
 }
 
 void BluetoothClient::clearBluezState() {
   ++m_objectManagerGeneration;
+  ++m_adapterReadGeneration;
+  m_adapterReadPending = false;
+  m_adapterStateKnown = false;
+  m_sinkPublished = false;
   const QString previousError = errorMessage();
   m_backgroundErrors.clear();
   if (previousError != errorMessage()) {
@@ -276,6 +294,7 @@ void BluetoothClient::clearBluezState() {
   setAdapterPowered(false);
   setAdapterDiscoverable(false);
   setAdapterPairable(false);
+  emit adapterStateChanged();
 }
 
 QString BluetoothClient::connectedDeviceName() const {
@@ -473,6 +492,11 @@ void BluetoothClient::applyInterfaceRemoved(const QString &path,
     setAdapterPowered(false);
     setAdapterDiscoverable(false);
     setAdapterPairable(false);
+    ++m_adapterReadGeneration;
+    m_adapterReadPending = false;
+    m_adapterStateKnown = true; // observed removal, rather than an unknown read
+    m_sinkPublished = false;
+    emit adapterStateChanged();
   }
 }
 
@@ -509,6 +533,14 @@ void BluetoothClient::applyPropertiesChanged(
       applyPlayerProps(device.playerProperties);
     }
   } else if (interface == kAdapterInterface) {
+    if (path == m_adapterPath && (invalidated.contains(kPoweredProp) ||
+        invalidated.contains(QStringLiteral("UUIDs")))) {
+      m_adapterStateKnown = false;
+      m_sinkPublished = false;
+      ++m_adapterReadGeneration;
+      m_adapterReadPending = false;
+      refreshAdapterState();
+    }
     onAdapterPropsChanged(path, props);
   }
 }
@@ -679,15 +711,22 @@ void BluetoothClient::onAdapterAdded(const QString &path, const QVariantMap &pro
     m_adapterPath = path;
   }
   subscribeProperties(path, kAdapterInterface);
-  applyAdapterProps(props);
+  if (path == m_adapterPath) {
+    ++m_adapterReadGeneration;
+    m_adapterReadPending = false;
+    applyAdapterProps(props);
+  }
 }
 
-void BluetoothClient::onAdapterPropsChanged(const QString &,
+void BluetoothClient::onAdapterPropsChanged(const QString &path,
                                            const QVariantMap &props) {
-  // Base Powered/Discoverable/Pairable policy is NixOS-owned; the app observes
-  // the adapter (never building a discoverable toggle) and only re-asserts
-  // Discoverable=true on entering BluetoothWaiting (ensureDiscoverable).
-  applyAdapterProps(props);
+  if (path == m_adapterPath) {
+    if (props.contains(kPoweredProp) || props.contains(QStringLiteral("UUIDs"))) {
+      ++m_adapterReadGeneration;
+      m_adapterReadPending = false;
+    }
+    applyAdapterProps(props);
+  }
 }
 
 void BluetoothClient::applyPlayerProps(const QVariantMap &props) {
@@ -717,7 +756,15 @@ void BluetoothClient::applyPlayerProps(const QVariantMap &props) {
 
 void BluetoothClient::applyAdapterProps(const QVariantMap &props) {
   if (props.contains(kPoweredProp)) {
-    setAdapterPowered(unwrapDbusVariant(props.value(kPoweredProp)).toBool());
+    const QVariant value = unwrapDbusVariant(props.value(kPoweredProp));
+    m_adapterStateKnown = value.metaType() == QMetaType::fromType<bool>();
+    if (m_adapterStateKnown) {
+      setAdapterPowered(value.toBool());
+      setBackgroundError(QStringLiteral("adapterState"), QString());
+    } else {
+      setBackgroundError(QStringLiteral("adapterState"),
+          QStringLiteral("Bluetooth adapter status failed: invalid Powered property"));
+    }
   }
   if (props.contains(kDiscoverableProp)) {
     setAdapterDiscoverable(unwrapDbusVariant(props.value(kDiscoverableProp)).toBool());
@@ -725,6 +772,67 @@ void BluetoothClient::applyAdapterProps(const QVariantMap &props) {
   if (props.contains(kPairableProp)) {
     setAdapterPairable(unwrapDbusVariant(props.value(kPairableProp)).toBool());
   }
+  if (props.contains(QStringLiteral("UUIDs"))) {
+    m_sinkPublished = unwrapDbusVariant(props.value(QStringLiteral("UUIDs"))).toStringList()
+        .contains(QStringLiteral("0000110b-0000-1000-8000-00805f9b34fb"), Qt::CaseInsensitive);
+  }
+  emit adapterStateChanged();
+}
+
+void BluetoothClient::refreshAdapterState() {
+  if (m_adapterPath.isEmpty() || m_adapterReadPending) {
+    return;
+  }
+  m_adapterReadPending = true;
+  const quint64 generation = ++m_adapterReadGeneration;
+  const QString path = m_adapterPath;
+  QPointer<BluetoothClient> self(this);
+  m_dbusCall(kBlueZService, path, kPropertiesInterface, QStringLiteral("GetAll"),
+             {kAdapterInterface}, [self, generation, path](const QVariant &reply, const QString &error) {
+    if (!self || generation != self->m_adapterReadGeneration || path != self->m_adapterPath) {
+      return;
+    }
+    self->m_adapterReadPending = false;
+    const QVariantMap props = decodedProperties(reply);
+    if (!error.isEmpty() || !props.contains(kPoweredProp) ||
+        unwrapDbusVariant(props.value(kPoweredProp)).metaType() != QMetaType::fromType<bool>()) {
+      self->m_adapterStateKnown = false;
+      self->setBackgroundError(QStringLiteral("adapterState"), controllerErrorText(
+          QStringLiteral("Bluetooth adapter status"),
+          error.isEmpty() ? QStringLiteral("invalid adapter state reply") : error));
+      emit self->adapterStateChanged();
+      return;
+    }
+    self->setBackgroundError(QStringLiteral("adapterState"), QString());
+    self->applyAdapterProps(props);
+  });
+}
+
+void BluetoothClient::requestAdapterPowered(bool powered,
+    const std::function<void(const QString &)> &finished) {
+  if (m_adapterPath.isEmpty()) {
+    finished(QStringLiteral("Bluetooth adapter unavailable — check system config"));
+    return;
+  }
+  ++m_adapterReadGeneration;
+  m_adapterReadPending = false;
+  const QString path = m_adapterPath;
+  QPointer<BluetoothClient> self(this);
+  m_dbusCall(kBlueZService, path, kPropertiesInterface, QStringLiteral("Set"),
+      {kAdapterInterface, kPoweredProp, QVariant::fromValue(QDBusVariant(powered))},
+      [self, path, powered, finished](const QVariant &, const QString &error) {
+    if (!self) {
+      return;
+    }
+    ++self->m_adapterReadGeneration;
+    self->m_adapterReadPending = false;
+    self->m_adapterStateKnown = false;
+    finished(!error.isEmpty() ? controllerErrorText(
+        powered ? QStringLiteral("Bluetooth startup") : QStringLiteral("Bluetooth shutdown"), error)
+        : (path != self->m_adapterPath
+              ? QStringLiteral("Bluetooth adapter changed during source switching") : QString()));
+    self->refreshAdapterState();
+  });
 }
 
 void BluetoothClient::resetAvrcp() {

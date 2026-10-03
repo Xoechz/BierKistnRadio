@@ -69,6 +69,11 @@ public:
   bool adapterPowered() const;
   bool adapterDiscoverable() const;
   bool adapterPairable() const;
+  bool adapterStateKnown() const { return m_adapterStateKnown; }
+  bool adapterAvailable() const { return !m_adapterPath.isEmpty(); }
+  bool sinkReady() const { return m_adapterPowered && m_sinkPublished; }
+  void requestAdapterPowered(bool powered,
+                             const std::function<void(const QString &)> &finished);
 
   bool statusPublished() const;
   bool trackPublished() const;
@@ -143,6 +148,7 @@ signals:
   void adapterPoweredChanged();
   void adapterDiscoverableChanged();
   void adapterPairableChanged();
+  void adapterStateChanged();
   void statusPublishedChanged();
   void trackPublishedChanged();
   void trackMetadataChanged();
@@ -214,6 +220,7 @@ private:
   void refreshManagedObjects();
   void clearBluezState();
   void subscribeObjectManager();
+  void refreshAdapterState();
 
 private slots:
   void onInterfacesAdded(const QDBusObjectPath &path,
@@ -251,6 +258,11 @@ private:
   bool m_adapterPowered = false;
   bool m_adapterDiscoverable = false;
   bool m_adapterPairable = false;
+  bool m_adapterStateKnown = false;
+  bool m_sinkPublished = false;
+  quint64 m_adapterReadGeneration = 0;
+  bool m_adapterReadPending = false;
+  QTimer m_adapterPoll;
 
   bool m_statusPublished = false;
   bool m_trackPublished = false;

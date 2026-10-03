@@ -31,7 +31,8 @@ This app is a **thin D-Bus client**: it assumes the system environment grants th
 - **Packaging:** Nix flake — `packages.<system>.bierkistnRadio` for `x86_64-linux` (dev/test) and `aarch64-linux` (deploy).
 - **Playback abstraction:** MPRIS2 over D-Bus via spotifyd (Spotify), plus Bluetooth A2DP sink + best-effort AVRCP controls via BlueZ (radio/audio from a paired phone). Playback source state lives in `SpotifyClient` / `BluetoothClient`, coordinated by the `PlaybackController` facade — see [ADR 0003](./docs/adr/0003-spotifyd-and-bluetooth-sink-mopidy-dropped.md) and [ADR 0006](./docs/adr/0006-source-clients-and-best-effort-avrcp-controls.md).
 - **Volume:** `wpctl set-volume @DEFAULT_AUDIO_SINK@ <pct%>` (wireplumber CLI), not a linked C library. Source-independent — shown in every state.
-- **Bluetooth audio mute (overlap guarantee):** muting the A2DP stream = find the connected device's bluez audio node via `pw-dump` (match by `api.bluez5.address` == the connected MAC, e.g. `bluez_input.<MAC>.2` or `bluez_output.<MAC>.a2dp-sink` — the node name shape is **device/profile-dependent**, never hardcode it), then `wpctl set-mute <node id>`. Never mute `@DEFAULT_AUDIO_SINK@` (that's spotifyd's path too). `setMuted(true)` mutes **all** connected nodes; `setMuted(false)` unmutes only the active one. See [ADR 0008](./docs/adr/0008-two-sided-audio-exclusivity.md).
+- **Source exclusivity:** observe `spotifyd.service` stopped before powering on Bluetooth; observe the adapter off before starting spotifyd. `SpotifyServiceClient` owns user-systemd calls on the session bus, and `BluetoothClient` owns adapter power/local A2DP Sink readiness. See [ADR 0009](./docs/adr/0009-exclusive-source-lifecycle.md).
+- **Supplemental Bluetooth mute/takeover:** discover A2DP nodes by `api.bluez5.address` via `pw-dump`, then `wpctl set-mute <node id>`. Never hardcode device/profile-dependent node names or mute the shared `@DEFAULT_AUDIO_SINK@`. `true` mutes all connected nodes; `false` unmutes only the active device. Mute is not proof of source shutdown.
 - **System D-Bus interfaces used:** MPRIS2 (`org.mpris.MediaPlayer2.spotifyd.instance$PID`), `org.bluez` (`Device1`, `Adapter1`, `MediaPlayer1` for best-effort AVRCP), NetworkManager, BlueZ.
 - **On-screen keyboard:** `QtQuick.VirtualKeyboard` — **GPLv3/commercial in Qt6**. This app is GPLv3 as a result. See [ADR 0002](./docs/adr/0002-tech-stack.md).
 
@@ -46,10 +47,10 @@ Single full-screen three-column layout with a persistent status bar. No view swi
 - Height: 48px. Three regions: clock (left), Source toggle (center), Reboot/Shutdown icons (right).
 - **Clock:** current time, left-aligned.
 - **Source toggle:** "Spotify ○══○ Bluetooth" — tapping it switches between Spotify and Bluetooth.
-  - Spotify → calls `PlaybackController.switchToSpotify()`: hard-mutes and best-effort AVRCP-pauses the Bluetooth side, then queries the bus for the appropriate Spotify state. See the mute invariant in [ADR 0008](./docs/adr/0008-two-sided-audio-exclusivity.md).
-  - Bluetooth → calls `PlaybackController.switchToBluetooth()`: pauses spotifyd, unmutes the Bluetooth stream, then enters `BluetoothWaiting` (no device connected) or `BluetoothActive` (device already connected).
-  - Shows "…" while switching; resets when `playbackState` changes. A 3-second timeout resets the "…" if no state change arrives (prevents stuck limbo).
-  - A phone connecting via BT does NOT automatically switch the app to Bluetooth mode — only the user tapping the toggle does. It *does* get muted (and AVRCP-paused) if the app is in a Spotify state; a spotify session that starts while in a Bluetooth state is paused — the mute invariant ([ADR 0008](./docs/adr/0008-two-sided-audio-exclusivity.md)), not a state change.
+  - Spotify → observes Bluetooth powered off (disconnecting phones), then starts the user's `spotifyd.service`.
+  - Bluetooth → observes `spotifyd.service` stopped, then powers on Bluetooth and waits for its local A2DP Sink UUID.
+  - Shows "…" from `PlaybackController.switching`; one backend-owned 10-second deadline covers the whole transition. Failures retain the requested source with `sourceError` and manual Retry in the Left Column. T31 owns the full-screen loading overlay.
+  - Connections or metadata never select a source. No automatic phone connection or Play. Unexpected inactive-source streams may be muted/paused as supplemental safeguards.
 - **Reboot / Shutdown icons:** icon-only buttons in the top-right. Tapping opens a confirmation dialog (see §4.F).
 
 ### B. Now-Playing (default and only view)
@@ -136,9 +137,9 @@ Tapping reboot or shutdown in the status bar opens a centered modal:
 - 10-second auto-dismiss (cancels) to prevent accidental activation.
 - Confirm calls `systemctl poweroff` or `systemctl reboot` via `QProcess` or `org.freedesktop.login1` D-Bus.
 
-### F. Mute Invariant (ADR 0008)
+### F. Source Exclusivity (ADR 0009)
 
-Only the **shown Source** is audible; the inactive Source is **muted and paused** — see [ADR 0008](./docs/adr/0008-two-sided-audio-exclusivity.md) (supersedes ADR 0006 §10–13). Mechanism: the BT side is hard-muted per connected device's A2DP node (`pw-dump` → `wpctl set-mute`, `setMuted(true)` mutes **all** connected, `setMuted(false)` unmutes only the **active** one) plus best-effort AVRCP `pauseAll()`; the Spotify side is "muted" by `MPRIS Pause` (its output shares the physical sink, so there is no independent spotify node to mute). It is re-asserted on every relevant connect, and **never auto-Plays** — unmute happens only by entering the source. Only one active phone is audible; a second connect is arbitrated by the takeover dialog, not mixed in. A BT disconnect while in a Spotify state does nothing; a BT disconnect while in `BluetoothActive` triggers a Bluetooth subtree re-query: if another device is still connected, retarget the AVRCP controls at it and stay `BluetoothActive`; otherwise transition to `BluetoothWaiting`. Never re-query the Spotify bus on a BT disconnect, and never auto-reconnect a dropped connection — source switching (and reconnection) is explicit-only.
+Disable and observe the outgoing backend before enabling the requested one. Boot in Spotify mode; a running user service is ready without MPRIS or a phone, while Bluetooth needs a powered adapter advertising the local A2DP Sink UUID. Keep selection on the requested source after failure; freeze command progression, keep observing for late recovery, and offer explicit Retry without automatically relaunching failed commands. The whole transition has one 10-second deadline. Per-device mute/AVRCP pause remain supplemental safeguards and takeover controls, never the primary shutdown condition. Never auto-Play or reconnect phones. Bluetooth connects/disconnects cannot select Spotify; remaining connected devices retarget AVRCP within Bluetooth mode.
 
 ## 5. Design Guidelines
 
@@ -161,6 +162,7 @@ Only the **shown Source** is audible; the inactive Source is **muted and paused*
 │   └── controllers/         # C++ QObject controllers owning D-Bus state
 │       ├── PlaybackController.{h,cpp}   # facade: playbackState, source switching, transport routing
 │       ├── SpotifyClient.{h,cpp}        # MPRIS2 (spotifyd), source state + transport
+│       ├── SpotifyServiceClient.{h,cpp} # user-systemd lifecycle/status, independent of MPRIS
 │       ├── BluetoothClient.{h,cpp}      # BlueZ: Device1 + MediaPlayer1 AVRCP, takeover, mute
 │       ├── WifiController.{h,cpp}       # NetworkManager
 │       ├── VolumeController.{h,cpp}    # wpctl (source-independent sink volume)
@@ -199,7 +201,7 @@ All scripts assume you have first entered the Nix devShell: `nix develop` (or `d
 | `scripts/clean.sh` | Remove the `build/` directory. |
 | `scripts/nix-build.sh` | Full reproducible Nix build → `result/bin/bierkistnRadio` (x86_64). Use for a clean verification. |
 | `scripts/nix-build-pi.sh` | Cross-build the `aarch64-linux` package for the Pi. |
-| `scripts/test.sh` | Build and run all tests via CTest (`tst_controllers`, `tst_release_date`, `tst_pairing`, and `tst_qml`). |
+| `scripts/test.sh` | Build and run all tests via CTest (`tst_controllers`, `tst_release_date`, `tst_pairing`, `tst_source_switching`, and `tst_qml`). |
 
 For day-to-day iteration: `nix develop` → `scripts/setup.sh` (once) → `scripts/build.sh` → `scripts/run.sh`.
 
@@ -214,6 +216,7 @@ The project has C++ and QML test layers, both wired into CTest:
 - **C++ controller tests** (`tst_controllers`): Qt Test unit tests for defaults, property changes, and clamping, plus private-bus mock MPRIS2, NetworkManager, and BlueZ integration tests. No QML.
 - **MusicBrainz tests** (`tst_release_date`): Qt Test with a local HTTP server for lookup results, caching, failure states, and request pacing.
 - **Pairing tests** (`tst_pairing`): private-bus BlueZ AgentManager/Agent1 tests for registration, explicit confirmation, rejection, timeout, cancellation, stale requests, daemon recovery, and paired-device service authorization.
+- **Source-switching tests** (`tst_source_switching`): private-bus systemd/BlueZ boundary tests for ordered shutdown/startup, observed readiness, permission failure, timeout, manual retry, stale reads, and late recovery without repeated commands.
 - **QML view tests** (`tst_qml`): Qt Quick Test cases in `tests/tst_*.qml`. Run offscreen (`QT_QPA_PLATFORM=offscreen`). Import the `BierKistnRadio` module to test singletons and view behavior.
 
 The core library (`bierkistn_core`) — controllers + QML module — is a static lib linked by both the app and the tests, so tests see the exact same types as the app.

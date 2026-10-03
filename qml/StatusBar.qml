@@ -9,7 +9,7 @@ Rectangle {
     height: Theme.statusBarHeight
     color: Theme.statusBarColor
 
-    property bool switching: false
+    readonly property bool switching: PlaybackController.switching
 
     readonly property bool bluetoothActive: {
         switch (PlaybackController.playbackState) {
@@ -122,27 +122,11 @@ Rectangle {
         if (root.switching) {
             return
         }
-        root.switching = true
-        resetTimer.restart()
         if (root.bluetoothActive) {
             PlaybackController.switchToSpotify()
         } else {
             PlaybackController.switchToBluetooth()
         }
-    }
-
-    Connections {
-        target: PlaybackController
-        function onPlaybackStateChanged() {
-            root.switching = false
-            resetTimer.stop()
-        }
-    }
-
-    Timer {
-        id: resetTimer
-        interval: 3000
-        onTriggered: root.switching = false
     }
 
     Timer {

@@ -29,6 +29,7 @@ qt_policy(SET QTP0004 NEW)
 qt_add_library(bierkistn_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PlaybackController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/SpotifyClient.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/SpotifyServiceClient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/BluetoothClient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PairingAgent.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/WifiController.cpp
@@ -123,6 +124,10 @@ add_test(NAME tst_release_date COMMAND tst_release_date)
 qt_add_executable(tst_pairing tests/tst_pairing.cpp)
 target_link_libraries(tst_pairing PRIVATE bierkistn_core Qt6::Test)
 add_test(NAME tst_pairing COMMAND tst_pairing)
+
+qt_add_executable(tst_source_switching tests/tst_source_switching.cpp)
+target_link_libraries(tst_source_switching PRIVATE bierkistn_core Qt6::Test)
+add_test(NAME tst_source_switching COMMAND tst_source_switching)
 
 # QML view tests
 qt_add_executable(tst_qml

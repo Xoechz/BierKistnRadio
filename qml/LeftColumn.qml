@@ -13,7 +13,11 @@ Rectangle {
 
     readonly property string btDeviceName: playback.bluetooth.connectedDeviceName
     readonly property bool btTrack: playback.bluetooth.trackPublished
+    readonly property string transitionError: playback.sourceError || ""
     readonly property string sourceError: {
+        if (transitionError !== "") {
+            return transitionError
+        }
         switch (playbackState) {
         case PlaybackController.BluetoothWaiting:
         case PlaybackController.BluetoothActive:
@@ -36,6 +40,16 @@ Rectangle {
             color: Theme.errorColor
             font.pixelSize: Theme.fontSizeSmall
             wrapMode: Text.Wrap
+        }
+
+        Button {
+            objectName: "sourceRetryButton"
+            text: "Retry"
+            visible: root.transitionError !== ""
+            enabled: !root.playback.switching
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.touchTarget
+            onClicked: root.playback.retrySource()
         }
 
         // ---------- Hint / error text (non-active states) ----------

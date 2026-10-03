@@ -31,6 +31,10 @@ TestCase {
         property QtObject spotify: spotify
         property QtObject bluetooth: bluetooth
         property string releaseDate: "2024-01-01"
+        property string sourceError: ""
+        property bool switching: false
+        property int retries: 0
+        function retrySource() { retries++ }
     }
 
     ApplicationWindow {
@@ -56,10 +60,29 @@ TestCase {
         bluetooth.connectedDeviceName = "Phone"
         spotify.errorMessage = ""
         bluetooth.errorMessage = ""
+        facade.sourceError = ""
+        facade.switching = false
+        facade.retries = 0
     }
 
     function cleanup() {
         Theme.darkMode = true
+    }
+
+    function test_sourceTransitionErrorAndRetry() {
+        facade.playbackState = PlaybackController.BluetoothWaiting
+        facade.sourceError = "Spotify shutdown: Permission denied — check system config"
+        var error = findChild(leftColumn, "sourceErrorLabel")
+        var retry = findChild(leftColumn, "sourceRetryButton")
+        tryCompare(error, "text", facade.sourceError)
+        tryCompare(retry, "visible", true)
+        verify(retry.height >= Theme.touchTarget)
+        mouseClick(retry)
+        compare(facade.retries, 1)
+        facade.switching = true
+        compare(retry.enabled, false)
+        facade.sourceError = ""
+        tryCompare(retry, "visible", false)
     }
 
     function checkTitleFits(title) {
