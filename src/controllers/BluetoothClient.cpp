@@ -14,6 +14,7 @@
 #include <QJsonParseError>
 #include <QProcess>
 #include <QPointer>
+#include <memory>
 
 // Per-object PropertiesChanged receiver. QDBusConnection::connect has no
 // functor overload, and the signal carries its arguments but not the emitting
@@ -127,11 +128,27 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
                      });
   };
 
-  m_runner = [](const QStringList &args,
+  m_runner = [this](const QStringList &args,
                 const std::function<void(const QByteArray &, const QString &)> &onFinished) {
-    auto *proc = new QProcess;
+    auto *proc = new QProcess(this);
+    auto completed = std::make_shared<bool>(false);
+    auto *timeout = new QTimer(proc);
+    timeout->setSingleShot(true);
+    QObject::connect(timeout, &QTimer::timeout, proc, [proc, completed, onFinished]() {
+      if (*completed) {
+        return;
+      }
+      *completed = true;
+      proc->kill();
+      onFinished(QByteArray(), QStringLiteral("timed out"));
+      proc->deleteLater();
+    });
     QObject::connect(proc, &QProcess::finished, proc,
-                     [proc, onFinished](int code, QProcess::ExitStatus status) {
+                     [proc, completed, onFinished](int code, QProcess::ExitStatus status) {
+                        if (*completed) {
+                          return;
+                        }
+                        *completed = true;
                        QString error;
                        if (code != 0 || status != QProcess::NormalExit) {
                          error = QString::fromUtf8(proc->readAllStandardError()).trimmed();
@@ -145,13 +162,15 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
                        proc->deleteLater();
                      });
     QObject::connect(proc, &QProcess::errorOccurred, proc,
-                     [proc, onFinished](QProcess::ProcessError error) {
-                       if (error == QProcess::FailedToStart) {
+                      [proc, completed, onFinished](QProcess::ProcessError error) {
+                        if (error == QProcess::FailedToStart && !*completed) {
+                          *completed = true;
                          onFinished(QByteArray(), proc->errorString());
                          proc->deleteLater();
                        }
                      });
     proc->start(args.value(0), args.mid(1));
+    timeout->start(5000);
   };
 
   m_takeoverTimer.setSingleShot(true);

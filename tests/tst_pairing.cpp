@@ -14,6 +14,7 @@ public:
   int unregisters = 0;
   QStringList canceledDevices;
   bool denyDefault = false;
+  bool denyUnregister = false;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &bus) override {
@@ -38,6 +39,11 @@ public:
       }
     } else if (message.member() == QStringLiteral("UnregisterAgent") && message.signature() == "o") {
       ++unregisters;
+      if (denyUnregister) {
+        bus.send(message.createErrorReply(QStringLiteral("org.bluez.Error.NotAuthorized"),
+                                          QStringLiteral("Permission denied")));
+        return true;
+      }
     } else {
       bus.send(message.createErrorReply(QDBusError::InvalidArgs, QStringLiteral("Invalid manager call")));
       return true;
@@ -58,6 +64,7 @@ private slots:
   void registrationErrorAndRecovery();
   void senderValidationAndDaemonRestart();
   void adapterAvailabilityAndPairedReconnect();
+  void unregisterFailureIsVisible();
 
 private:
   QProcess daemon;
@@ -286,6 +293,18 @@ void TestPairing::adapterAvailabilityAndPairedReconnect() {
   QTRY_VERIFY(pending.isFinished());
   QVERIFY(pending.isError());
   QVERIFY(!bluetooth.pairing()->pending());
+}
+
+void TestPairing::unregisterFailureIsVisible() {
+  PairingAgent agent(app);
+  ready(agent);
+  QSignalSpy errors(&agent, &PairingAgent::errorChanged);
+  manager.denyUnregister = true;
+  agent.setEnabled(false);
+  QTRY_VERIFY(!errors.isEmpty() && errors.last().first().toString().contains(QStringLiteral("Permission denied")));
+  manager.denyUnregister = false;
+  ready(agent);
+  QTRY_COMPARE(errors.last().first().toString(), QString());
 }
 
 QTEST_GUILESS_MAIN(TestPairing)

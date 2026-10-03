@@ -9,6 +9,7 @@
 #include <QDBusPendingCall>
 #include <QDBusPendingCallWatcher>
 #include <QDBusVariant>
+#include <QDBusServiceWatcher>
 #include <QPointer>
 #include <QTimer>
 #include <QUuid>
@@ -98,8 +99,8 @@ WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
     QDBusMessage msg =
         QDBusMessage::createMethodCall(service, objectPath, interface, method);
     msg.setArguments(args);
-    QDBusPendingCall pending = m_bus.asyncCall(msg);
-    auto *watcher = new QDBusPendingCallWatcher(pending);
+    QDBusPendingCall pending = m_bus.asyncCall(msg, 5000);
+    auto *watcher = new QDBusPendingCallWatcher(pending, this);
     QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher,
                       [watcher, onFinished]() {
                        QString error;
@@ -121,10 +122,31 @@ WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
                      });
   };
 
-  m_bus.connect(
-      kNetworkManagerService, kNetworkManagerPath, kPropertiesInterface,
-      kPropertiesChangedSignal, this,
-      SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)));
+  subscribeManager();
+  auto *serviceWatcher = new QDBusServiceWatcher(kNetworkManagerService, m_bus,
+      QDBusServiceWatcher::WatchForOwnerChange, this);
+  QObject::connect(serviceWatcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+      [this](const QString &, const QString &, const QString &owner) {
+    ++m_scanGeneration;
+    ++m_inventoryGeneration;
+    ++m_stateGeneration;
+    ++m_connectGeneration;
+    m_connectTimer.stop();
+    m_connectRequestedSsid.clear();
+    setConnecting(false);
+    setWifiDevicePath(QString());
+    m_accessPoints.clear();
+    m_knownAccessPoints.clear();
+    rebuildNetworks();
+    setConnectedState(false, QString(), 0);
+    setError(owner.isEmpty()
+        ? controllerErrorText(QStringLiteral("Wi-Fi"), QStringLiteral("ServiceUnknown"))
+        : QString());
+    if (!owner.isEmpty()) {
+      subscribeManager();
+      discoverWifiDevice();
+    }
+  });
 
   // Find the Wi-Fi device at startup, even when Ethernet owns the default route.
   QTimer::singleShot(0, this, [this]() {
@@ -136,7 +158,10 @@ WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
 
 bool WifiController::connected() const { return m_connected; }
 QString WifiController::ssid() const { return m_ssid; }
-QString WifiController::errorMessage() const { return m_errorMessage; }
+QString WifiController::errorMessage() const {
+  return !m_errorMessage.isEmpty() ? m_errorMessage
+      : (m_backgroundErrors.isEmpty() ? QString() : m_backgroundErrors.first());
+}
 bool WifiController::connecting() const { return m_connecting; }
 int WifiController::signalStrength() const { return m_signalStrength; }
 QVariantList WifiController::networks() const { return m_networks; }
@@ -287,33 +312,56 @@ void WifiController::setWifiDevicePath(const QString &path) {
         SLOT(onWifiDeviceStateChanged(uint, uint, uint)));
   }
   m_wifiDevicePath = path;
+  if (path.isEmpty()) {
+    for (const QString &key : {QStringLiteral("wifiProperties"), QStringLiteral("wifiState"),
+                              QStringLiteral("apAdded"), QStringLiteral("apRemoved")}) {
+      setBackgroundError(key, QString());
+    }
+    return;
+  }
   subscribeAccessPoints(path);
-  m_bus.connect(kNetworkManagerService, path,
-      kPropertiesInterface, kPropertiesChangedSignal, this,
+  subscribeSignal(QStringLiteral("wifiProperties"), path,
+      kPropertiesInterface, kPropertiesChangedSignal,
       SLOT(onWifiPropertiesChanged(QString, QVariantMap, QStringList)));
-  m_bus.connect(kNetworkManagerService, path,
-      kDeviceInterface, QStringLiteral("StateChanged"), this,
+  subscribeSignal(QStringLiteral("wifiState"), path,
+      kDeviceInterface, QStringLiteral("StateChanged"),
       SLOT(onWifiDeviceStateChanged(uint, uint, uint)));
   refreshActiveConnection();
 }
 
 void WifiController::subscribeAccessPoints(const QString &devicePath) {
-  m_bus.connect(
-      kNetworkManagerService, devicePath, kWirelessInterface,
-      QStringLiteral("AccessPointAdded"), this,
+  subscribeSignal(QStringLiteral("apAdded"), devicePath, kWirelessInterface,
+      QStringLiteral("AccessPointAdded"),
       SLOT(onAccessPointAdded(QDBusObjectPath)));
-  m_bus.connect(
-      kNetworkManagerService, devicePath, kWirelessInterface,
-      QStringLiteral("AccessPointRemoved"), this,
+  subscribeSignal(QStringLiteral("apRemoved"), devicePath, kWirelessInterface,
+      QStringLiteral("AccessPointRemoved"),
       SLOT(onAccessPointRemoved(QDBusObjectPath)));
 }
 
+void WifiController::subscribeManager() {
+  subscribeSignal(QStringLiteral("managerProperties"), kNetworkManagerPath,
+      kPropertiesInterface, kPropertiesChangedSignal,
+      SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)));
+}
+
+void WifiController::subscribeSignal(const QString &key, const QString &path,
+    const QString &interface, const QString &signal, const char *slot) {
+  m_bus.disconnect(kNetworkManagerService, path, interface, signal, this, slot);
+  const bool subscribed = m_bus.connect(kNetworkManagerService, path, interface, signal, this, slot);
+  const auto error = m_bus.lastError();
+  setBackgroundError(key, subscribed ? QString() : dbusErrorText(
+      QStringLiteral("Wi-Fi state subscription"), error.isValid()
+          ? error.name() + QStringLiteral(": ") + error.message()
+          : QStringLiteral("could not subscribe to NetworkManager")));
+}
+
 void WifiController::requestScan(const QString &devicePath) {
+  const quint64 generation = m_scanGeneration;
   QPointer<WifiController> self(this);
   m_dbusCall(kNetworkManagerService, devicePath, kWirelessInterface,
               QStringLiteral("RequestScan"), QVariantList{QVariantMap()},
-              [self](const QVariant &, const QString &error) {
-                if (self && !error.isEmpty()) {
+              [self, generation](const QVariant &, const QString &error) {
+                if (self && generation == self->m_scanGeneration && !error.isEmpty()) {
                   self->setError(dbusErrorText(QStringLiteral("Wi-Fi scan"), error));
                 }
               });
@@ -438,7 +486,22 @@ void WifiController::disconnect() {
 
 void WifiController::setError(const QString &message) {
   if (m_errorMessage != message) {
+    const QString previous = errorMessage();
     m_errorMessage = message;
+    if (previous != errorMessage()) {
+      emit errorMessageChanged();
+    }
+  }
+}
+
+void WifiController::setBackgroundError(const QString &key, const QString &message) {
+  const QString previous = errorMessage();
+  if (message.isEmpty()) {
+    m_backgroundErrors.remove(key);
+  } else {
+    m_backgroundErrors.insert(key, message);
+  }
+  if (previous != errorMessage()) {
     emit errorMessageChanged();
   }
 }

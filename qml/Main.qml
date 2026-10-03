@@ -54,6 +54,7 @@ ApplicationWindow {
 
     TakeoverDialog {}
     PairingDialog {}
+    SourceTransitionOverlay {}
 
     InputPanel {
         id: keyboardPanel

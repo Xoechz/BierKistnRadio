@@ -143,7 +143,7 @@ void SpotifyClient::sendPlayerCommand(const QString &method,
   QDBusMessage msg = QDBusMessage::createMethodCall(
       m_mprisService, kPlayerPath, kPlayerInterface, method);
   msg.setArguments(args);
-  auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(msg), this);
+  auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(msg, 5000), this);
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, generation, method]() {
             if (generation == m_commandGeneration && watcher->isError()) {

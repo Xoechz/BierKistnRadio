@@ -39,6 +39,9 @@
 
           cmakeFlags = [
             "-DCMAKE_BUILD_TYPE=Release"
+            # Tests run in the development build. Deployment builds only need
+            # the app, especially when building ARM through emulation.
+            "-DBUILD_TESTING=OFF"
           ];
         };
     in

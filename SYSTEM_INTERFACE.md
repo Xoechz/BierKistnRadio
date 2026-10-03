@@ -2,7 +2,7 @@
 
 This document defines the contract between the **BierKistn Radio UI** (this repo) and the **NixOS system repository** that consumes it as a flake input. The system repo is responsible for providing the runtime environment described here; the app assumes all of it is in place and does not configure any of it itself.
 
-**Feedback handoff:** §15 records the implemented app-side source lifecycle and pairing interface, the inspected NixOS configuration, and remaining system changes/target verification. [ADR 0009](./docs/adr/0009-exclusive-source-lifecycle.md) supersedes mute/pause-only switching. Repository inspection is not evidence that the Pi has deployed or passed this contract.
+**Feedback handoff:** §15 records the implemented app-side source lifecycle/pairing interface and the updated NyxOS declarations. [ADR 0009](./docs/adr/0009-exclusive-source-lifecycle.md) supersedes mute/pause-only switching. Follow [MANUAL_TEST_PLAN.md](./MANUAL_TEST_PLAN.md) for deployment/physical acceptance; repository inspection and the ARM package build do not establish that the Pi has passed this contract.
 
 For architectural rationale, see [ADR 0001](./docs/adr/0001-mpris2-mopidy-as-playback-abstraction.md) and [ADR 0002](./docs/adr/0002-tech-stack.md). For domain terminology, see [CONTEXT.md](./CONTEXT.md).
 
@@ -66,7 +66,7 @@ The app is a thin D-Bus client. It connects to **both** the session bus and the 
 
 The Bluetooth sink is **phone-driven** — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md). The app observes connections, powers the adapter for source switching, and confirms incoming pairing requests; it never initiates pairing, device discovery, or a phone connection. The system repo owns:
 
-- **Radio off at boot; discoverable while Bluetooth is ready.** Set `powerOnBoot=false`, `AutoEnable=false`, and `DiscoverableTimeout=0`. Preserve the adapter's pairable policy. The app writes `Powered` for source switching and re-asserts `Discoverable=true` when Bluetooth becomes ready without a connected phone, or the last phone disconnects. There is no discoverability toggle or always-on radio service. Authorize these adapter property writes and the confirmation-capable app agent described in §15.2.
+- **Radio off at boot; discoverable while Bluetooth is ready.** Set `powerOnBoot=false`, `[Policy] AutoEnable=false`, and `[General] DiscoverableTimeout=0`. Preserve the adapter's pairable policy. The app writes `Powered` for source switching and re-asserts `Discoverable=true` when Bluetooth becomes ready without a connected phone, or the last phone disconnects. There is no discoverability toggle or always-on radio service. Authorize these adapter property writes and the confirmation-capable app agent described in §15.2.
 - **A2DP-sink-only role** in WirePlumber: `bluez5.roles = [ a2dp_sink ]`, `device.profile = "a2dp-sink"`, `bluez5.auto-connect = []`, and `bluez5.enable-sbc-xq = true` for high-quality SBC codec.
 
 The app observes `org.bluez.Device1` objects (`PropertiesChanged` for `Connected`/`Name`) and calls `Device1.Disconnect()` to kick a device. **Takeover**: when a second phone connects while one is active, the app shows a modal dialog ("Keep <current> or switch to <new>?", default keep after 10 s) and disconnects accordingly — see [ADR 0004](./docs/adr/0004-phone-driven-bluetooth-connection-model.md).
@@ -235,20 +235,20 @@ The interface requires the kiosk user be authorized for the **BlueZ** actions `B
 - `org.bluez.Device1.Disconnect` — the takeover "kick" (§3).
 - AgentManager1 registration/default-agent/unregistration and `Device1.CancelPairing` — incoming pairing confirmation (§15.2).
 
-The inspected `security.polkit.extraConfig` includes a broad `org.bluez.*` rule alongside NetworkManager and login1. This is not proof that BlueZ's actual system-bus policy grants the required calls.
+The updated `security.polkit.extraConfig` grants NetworkManager actions and specific login1 power/reboot actions, including multi-session variants. BlueZ uses its packaged system-bus policy, which normally permits calls to `org.bluez`; the ineffective broad `org.bluez.*` polkit rule was removed. Deployed authorization still needs verification.
 
 This may not bite in practice because BlueZ's net-effect is often gated by the caller being the active session user and a member of the `bluetooth` group (the kiosk user holds the active seat under cage and is in `extraGroups.bluetooth`), rather than by polkit. **Action:** verify on-device whether `Properties.Set` for `Adapter1.Discoverable`, `Device1.Disconnect`, and `MediaPlayer1.Play/Pause/Next/Previous` succeed for the `kistn` user; if policy-rejected, investigate the actual BlueZ D-Bus policy/authorization mechanism before granting access. A `Properties.Set` call uses the standard D-Bus interface, so a polkit rule matching only an `org.bluez.*` action name is not by itself proof of authorization.
 
 ### 14.2 Room-note: `Powered` and seat-monitoring
 
-- The adapter boots off (`powerOnBoot=false`, `AutoEnable=false`), and the app owns explicit source-driven power changes. Add `DiscoverableTimeout=0` as recommended in §15.1 and verify local A2DP Sink readiness after power-on.
+- The adapter boots off (`powerOnBoot=false`, `[Policy] AutoEnable=false`), and the app owns explicit source-driven power changes. `[General] DiscoverableTimeout=0` is now declared; verify local A2DP Sink readiness and lasting discoverability after power-on.
 - `monitor.bluez.seat-monitoring` is unset (default). The logind active-session note in §3 is a *conditional* ("if seat-monitoring interferes") — only address if Bluetooth nodes fail to appear in practice.
 
 ---
 
 ## 15. Planned system-repo handoff (feedback)
 
-**Status: T30/T33 app interfaces implemented; NixOS repository inspected; Pi deployment/verification pending.** The system configuration lives in `~/NyxOS`; its separate agent owns system-repo edits. This section is the interface specification for TODO T29/T32 (system) and T30/T31/T33 (app). Source switching follows ADR 0009. The full-screen loading overlay remains T31.
+**Status: T30/T31/T33 app interfaces implemented; system-side declarations updated; Pi deployment/verification pending.** The system configuration lives in `~/NyxOS`; its separate agent owns system-repo edits. This section is the interface specification for TODO T29/T32 (system) and T30/T31/T33 (app). Source switching follows ADR 0009, and the full-window modal loading overlay binds to the facade's bounded transition state.
 
 ### 15.1 Exclusive source lifecycle
 
@@ -267,19 +267,20 @@ This may not bite in practice because BlueZ's net-effect is often gated by the c
 - `BluetoothClient` discovers the adapter through BlueZ ObjectManager, sets `Adapter1.Powered` using `Properties.Set` with a D-Bus variant boolean, and confirms it through fresh property reads/signals. Bluetooth-ready additionally requires `Adapter1.UUIDs` to contain local A2DP Sink UUID `0000110b-0000-1000-8000-00805f9b34fb`.
 - Both clients passively poll status every 500 ms; polling never repeats lifecycle commands. The facade bounds the whole transition to 10 seconds and exposes `switching`, `sourceReady`, `sourceError`, and `retrySource()` to QML. Timeout freezes command progression. Late readiness clears the error if the already-requested operation completes; a late outgoing shutdown requires Retry if incoming startup was never issued.
 
-#### T29 repository analysis and suggested NixOS changes
+#### T29 system declarations and remaining target verification
 
-Inspection of `~/NyxOS/modules/bierkistn.nix` and `modules/hosts/piKistn.nix` found the concrete unit name already matches `spotifyd.service`. The Home Manager service is wanted by `default.target`, uses `Restart="on-failure"`/`RestartSec=12`, and shares the kiosk user's bus. Bluetooth already has `powerOnBoot=false`/`AutoEnable=false`; PipeWire and WirePlumber are wanted by the user session's `default.target`. Keep these settings.
+The concurrently updated `~/NyxOS/modules/bierkistn.nix` and `modules/hosts/piKistn.nix` now declare the concrete interface. The Home Manager service is `spotifyd.service`, wanted by `default.target`, with `Restart="on-failure"`/`RestartSec=12`. PipeWire/WirePlumber remain wanted by the user session. The system-side evidence/checklist is `~/NyxOS/resources/bierkistnVerification.md`.
 
-Changes for the system-repo agent:
+Implemented declarations and acceptance checks:
 
-1. Remove `spotifyd.Unit.After = [ "default.target" ]`. Because `default.target` wants spotifyd and normally orders itself after its wanted services, the reverse `After` can create an ordering cycle. If explicit audio startup ordering is desired, use `Unit.After` and `Unit.Wants` for `pipewire.service` and `wireplumber.service` instead.
-2. Add explicit `spotifyd.Service.TimeoutStartSec` and `TimeoutStopSec` values, suggested `3` seconds each, leaving time for adapter changes and observation within the app's 10-second budget. Preserve `Restart="on-failure"`, and do not add socket/timer/watchdog policy that resurrects intentionally stopped spotifyd.
-3. Add `hardware.bluetooth.settings.General.DiscoverableTimeout = 0`; the current module omits it, leaving BlueZ's default discovery timeout. The app makes the radio discoverable after Bluetooth readiness but does not repeatedly renew discovery.
-4. Verify cage and spotifyd use the same `kistn` user session bus and that adapter `Powered` writes succeed there. The module's broad `org.bluez.*` polkit rule is not proof of actual BlueZ D-Bus authorization; upstream BlueZ normally allows calls to its service through bus policy. Change the actual system-bus policy only if the target rejects the required calls.
-5. Deploy app and system revisions together and run the transition checks above. Verify the local A2DP Sink UUID is published by WirePlumber; `Powered=true` alone must not hide an unavailable sink.
+1. The `After=default.target` cycle is removed. Spotify is ordered after, and wants, `pipewire.service` and `wireplumber.service`.
+2. `TimeoutStartSec=3` and `TimeoutStopSec=3` leave time for adapter changes/observation within the app's ten-second budget. Intentional stops must remain stopped; verify crash recovery separately.
+3. Bluetooth has `powerOnBoot=false`, `hardware.bluetooth.settings.Policy.AutoEnable=false`, and `General.DiscoverableTimeout=0`. `AutoEnable` belongs to BlueZ's **Policy** section, not General.
+4. The app and PipeWire tools are installed, and `cage-tty1.service` has an explicit PATH containing PipeWire, WirePlumber, and systemd. The cache home follows the configured kiosk user's home. Verify the shared `kistn` bus and actual BlueZ authorization on the deployed system.
+5. The old auto-accept agent is absent from the inspected system module. Verify that no deployed/diagnostic agent competes with the app and that a new phone cannot pair while the app is unavailable.
+6. Deploy compatible app/system revisions together and follow manual cases M01/M04/M05/M10. Verify the local A2DP Sink UUID is published by WirePlumber; `Powered=true` alone must not hide an unavailable sink.
 
-These are source-inspection findings and recommendations, not a NixOS build or an on-device verification result.
+These are reviewed configuration declarations, not a NixOS system build or an on-device verification result. The app's native ARM package builds, but real cage/phone acceptance remains pending.
 
 ### 15.2 Pairing confirmation
 
@@ -287,4 +288,4 @@ These are source-inspection findings and recommendations, not a NixOS build or a
 - The C++ Bluetooth controller registers an `org.bluez.Agent1` object with BlueZ `AgentManager1` using a display/confirmation-capable pairing capability and coordinates its D-Bus requests with a QML confirmation dialog. For new phones, show BlueZ's dynamically generated **six-digit, zero-padded** code and device identity; the user checks the same code on the phone and confirms or rejects on the touchscreen. Where BlueZ selects `RequestConfirmation`, reply success only on explicit matching-code confirmation; handle `DisplayPasskey`/cancellation according to BlueZ's selected association flow. Reject unanswered requests after **30 s**, including on dialog cancellation or app exit. Do not manufacture a fixed PIN or silently trust a new device.
 - Previously paired phones reconnect without a new prompt when the Bluetooth source is selected. The system repo must allow the kiosk app to register/use the agent with BlueZ and authorize the requisite adapter operations; check actual BlueZ bus policy/permissions on the Pi rather than assuming a polkit rule alone suffices. Verify a new phone's accept, reject and timeout cases, and an already-paired phone's reconnect.
 
-**App-side implementation (T33):** `BluetoothClient` owns `PairingAgent`, exported at `/org/bierkistn/PairingAgent`. It calls `RegisterAgent(path, "DisplayYesNo")` and `RequestDefaultAgent(path)` on `/org/bluez` only while the Bluetooth source is selected and an adapter is powered; it unregisters and rejects pending confirmations when either condition stops holding. Allow these AgentManager1 calls and `Device1.CancelPairing` in the system-bus policy. The agent accepts requests only from BlueZ's current unique bus owner. `RequestConfirmation` is answered asynchronously from the touchscreen, with a 30-second deadline; service authorization for already-paired devices does not prompt. Legacy PIN, Just Works authorization, and passkey-entry pairing are not accepted: BlueZ's `DisplayPasskey` is a notification rather than a consent gate, so the app cancels that association flow and surfaces an error. Confirm the real phone negotiates numeric comparison (`RequestConfirmation`) with `DisplayYesNo` during T32/T33 Pi verification. The system's competing auto-accept agent still needs replacement under T32; this implementation does not change the system configuration.
+**App-side implementation (T33):** `BluetoothClient` owns `PairingAgent`, exported at `/org/bierkistn/PairingAgent`. It calls `RegisterAgent(path, "DisplayYesNo")` and `RequestDefaultAgent(path)` on `/org/bluez` only while Bluetooth is selected and the adapter is powered; it unregisters and rejects pending confirmations when either condition stops holding. The agent accepts requests only from BlueZ's current unique bus owner. `RequestConfirmation` is answered asynchronously from the touchscreen, with a 30-second deadline; service authorization for already-paired devices does not prompt. Legacy PIN, Just Works authorization, and passkey-entry pairing are not accepted: BlueZ's `DisplayPasskey` is a notification rather than a consent gate, so the app cancels that flow and surfaces an error. Registration, cancellation, and unregistration failures are checked and visible. The updated system module has no auto-accept agent; real-phone negotiation, deployed authorization/ownership, and absence of an unattended fallback remain T32/T42 acceptance in manual cases M05/M10.

@@ -18,6 +18,7 @@ public:
   bool holdUnitReads = false;
   bool holdAdapterReads = false;
   bool malformedState = false;
+  bool missingUnit = false;
   QString commandError;
   QStringList commands;
   QList<QDBusMessage> pendingReads;
@@ -45,6 +46,11 @@ public:
         return reject();
       }
       if (message.member() == QStringLiteral("LoadUnit") && message.signature() == "s") {
+        if (missingUnit) {
+          bus.send(message.createErrorReply(QStringLiteral("org.freedesktop.systemd1.NoSuchUnit"),
+                                            QStringLiteral("Unit spotifyd.service not found")));
+          return true;
+        }
         bus.send(message.createReply(QVariant::fromValue(QDBusObjectPath(unit))));
         return true;
       }
@@ -149,6 +155,7 @@ private slots:
   void outgoingTimeoutRequiresRetry();
   void failedSpotifyStartupAndRecovery();
   void staleAdapterReadAfterLiveUpdate();
+  void missingUnitIsUnavailable();
 
 private:
   QProcess daemon;
@@ -189,6 +196,7 @@ void TestSourceSwitching::init() {
   services.holdUnitReads = false;
   services.holdAdapterReads = false;
   services.malformedState = false;
+  services.missingUnit = false;
   services.commandError.clear();
   services.commands.clear();
   services.pendingReads.clear();
@@ -403,6 +411,16 @@ void TestSourceSwitching::staleAdapterReadAfterLiveUpdate() {
   QTest::qWait(100);
   QVERIFY(playback.sourceReady()); // a live update supersedes the held read
   QVERIFY(playback.sourceError().isEmpty());
+}
+
+void TestSourceSwitching::missingUnitIsUnavailable() {
+  services.missingUnit = true;
+  PlaybackController playback(client, client);
+  QTRY_VERIFY(!playback.sourceError().isEmpty());
+  QVERIFY(playback.sourceError().contains(QStringLiteral("service unavailable")));
+  QVERIFY(playback.sourceError().contains(QStringLiteral("check system config")));
+  QVERIFY(!playback.sourceReady());
+  QVERIFY(services.commands.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(TestSourceSwitching)

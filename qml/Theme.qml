@@ -13,6 +13,7 @@ QtObject {
     readonly property color textColor: darkMode ? "#FFFFFF" : "#1A1A1A"
     readonly property color secondaryTextColor: darkMode ? "#B0B0B0" : "#666666"
     readonly property color errorColor: darkMode ? "#CF6679" : "#B00020"
+    readonly property color loadingOverlayColor: Qt.rgba(0.5, 0.5, 0.5, 0.7)
 
     readonly property int touchTarget: 48
     readonly property int touchTargetLarge: 64

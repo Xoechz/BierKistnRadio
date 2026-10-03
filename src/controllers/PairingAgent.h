@@ -56,7 +56,7 @@ private:
   void finish(bool accept, const QString &reason);
   void cancelPairing(const QString &device);
   void registerAgent();
-  void unregisterAgent();
+  void unregisterAgent(bool reportErrors = true);
   void unsupported();
   QDBusConnection m_bus;
   QString m_owner;

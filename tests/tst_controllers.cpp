@@ -192,6 +192,30 @@ public:
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &connection) override {
     const QString method = message.member();
+    const QString managerPath = QStringLiteral("/org/freedesktop/NetworkManager");
+    const QString devicePath = managerPath + QStringLiteral("/Devices/1");
+    const QString apPath = managerPath + QStringLiteral("/AccessPoint/1");
+    const QString properties = QStringLiteral("org.freedesktop.DBus.Properties");
+    const QString wireless = QStringLiteral("org.freedesktop.NetworkManager.Device.Wireless");
+    const QString nm = QStringLiteral("org.freedesktop.NetworkManager");
+    const bool valid =
+        (method == QStringLiteral("GetDevices") && message.path() == managerPath &&
+         message.interface() == nm && message.signature().isEmpty()) ||
+        (method == QStringLiteral("GetAllAccessPoints") && message.path() == devicePath &&
+         message.interface() == wireless && message.signature().isEmpty()) ||
+        (method == QStringLiteral("RequestScan") && message.path() == devicePath &&
+         message.interface() == wireless && message.signature() == QStringLiteral("a{sv}")) ||
+        (method == QStringLiteral("AddAndActivateConnection") && message.path() == managerPath &&
+         message.interface() == nm && message.signature() == QStringLiteral("a{sa{sv}}oo")) ||
+        (method == QStringLiteral("Get") && message.path() == devicePath &&
+         message.interface() == properties && message.signature() == QStringLiteral("ss")) ||
+        (method == QStringLiteral("GetAll") && message.path() == apPath &&
+         message.interface() == properties && message.signature() == QStringLiteral("s"));
+    if (!valid) {
+      connection.send(message.createErrorReply(QStringLiteral("org.freedesktop.DBus.Error.InvalidArgs"),
+          QStringLiteral("Invalid NetworkManager path, interface or signature")));
+      return true;
+    }
     if (method == QStringLiteral("GetDevices") ||
         method == QStringLiteral("GetAllAccessPoints")) {
       const QString path = method == QStringLiteral("GetDevices")
@@ -258,6 +282,7 @@ private slots:
   void testWifiControllerScanError();
   void testWifiControllerActivationResult();
   void testWifiPrivateBusScanAndActivation();
+  void testBluetoothMuteProcessTimeout();
   void testBluetoothClientDefaults();
   void testBluetoothTracksConnectedDevices();
   void testBluetoothTakeoverDetection();
@@ -872,6 +897,25 @@ void TestControllers::testWifiPrivateBusScanAndActivation() {
     QVERIFY(!wifi.connecting());
     QCOMPARE(wifi.ssid(), QStringLiteral("PrivateWifi"));
     QCOMPARE(wifi.signalStrength(), 71);
+
+    // Daemon loss cancels an in-flight activation, invalidates cached paths,
+    // and surfaces an error. Reappearance reloads APs and subscriptions once.
+    wifi.connect(QStringLiteral("PrivateWifi"), QStringLiteral("test-password"));
+    QVERIFY(wifi.connecting());
+    QVERIFY(bus.unregisterService(QStringLiteral("org.freedesktop.NetworkManager")));
+    QTRY_VERIFY(!wifi.connecting());
+    QTRY_VERIFY(wifi.networks().isEmpty());
+    QVERIFY(!wifi.connected());
+    QVERIFY(wifi.errorMessage().contains(QStringLiteral("service unavailable")));
+    QCOMPARE(succeeded.size(), 1);
+    QVERIFY(bus.registerService(QStringLiteral("org.freedesktop.NetworkManager")));
+    QTRY_COMPARE(wifi.networks().size(), 1);
+    QVERIFY(wifi.errorMessage().isEmpty());
+    wifi.connect(QStringLiteral("PrivateWifi"), QStringLiteral("test-password"));
+    QVERIFY(bus.send(activated));
+    QTRY_COMPARE(succeeded.size(), 2);
+    QTest::qWait(100);
+    QCOMPARE(succeeded.size(), 2); // no duplicate subscription after recovery
   }
   bus.unregisterObject(nmPath);
   bus.unregisterService(QStringLiteral("org.freedesktop.NetworkManager"));
@@ -884,6 +928,34 @@ void TestControllers::testBluetoothClientDefaults() {
   QCOMPARE(c.statusPublished(), false);
   QCOMPARE(c.trackPublished(), false);
   QCOMPARE(c.muted(), false);
+}
+
+void TestControllers::testBluetoothMuteProcessTimeout() {
+  QTemporaryDir commands;
+  QVERIFY(commands.isValid());
+  QFile dump(commands.filePath(QStringLiteral("pw-dump")));
+  QVERIFY(dump.open(QIODevice::WriteOnly));
+  dump.write("#!/bin/sh\nexec sleep 30\n");
+  dump.close();
+  QVERIFY(dump.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+  const QByteArray previousPath = qgetenv("PATH");
+  const auto restorePath = qScopeGuard([&]() { qputenv("PATH", previousPath); });
+  qputenv("PATH", commands.path().toUtf8() + ':' + previousPath);
+  BluetoothClient bluetooth(QDBusConnection(QStringLiteral("missing-bluez-process-test")));
+  bluetooth.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0/dev_A"),
+      QStringLiteral("org.bluez.Device1"), {{QStringLiteral("Connected"), true},
+                                           {QStringLiteral("Address"), QStringLiteral("AA:BB:CC:DD:EE:FF")}});
+  bluetooth.setMuted(true);
+  QTRY_VERIFY_WITH_TIMEOUT(bluetooth.errorMessage().contains(QStringLiteral("timed out")), 7000);
+  // Retry after fixing the command must clear the mute operation's error,
+  // independently of the intentionally missing test D-Bus service.
+  bluetooth.setCommandRunnerForTest([](const QStringList &args, const auto &done) {
+    done(args.first() == QStringLiteral("pw-dump")
+        ? QByteArray(R"([{"id":42,"info":{"props":{"api.bluez5.address":"AA:BB:CC:DD:EE:FF"}}}])")
+        : QByteArray(), QString());
+  });
+  bluetooth.setMuted(false);
+  QVERIFY(!bluetooth.errorMessage().contains(QStringLiteral("timed out")));
 }
 
 void TestControllers::testBluetoothTracksConnectedDevices() {
@@ -2165,7 +2237,7 @@ void TestControllers::testPowerCommandErrorsAndRetry() {
   QVERIFY(c.busy());
   c.reboot(); // a second request cannot overtake the pending command
   QCOMPARE(actions, (QStringList{QStringLiteral("poweroff")}));
-  pending(QStringLiteral("AccessDenied"));
+  pending(QStringLiteral("Failed to power off system via logind: Interactive authentication required."));
   QVERIFY(!c.busy());
   QCOMPARE(c.errorMessage(), QStringLiteral("Permission denied — check system config"));
   QCOMPARE(successSpy.size(), 0);

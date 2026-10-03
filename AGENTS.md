@@ -49,7 +49,7 @@ Single full-screen three-column layout with a persistent status bar. No view swi
 - **Source toggle:** "Spotify ○══○ Bluetooth" — tapping it switches between Spotify and Bluetooth.
   - Spotify → observes Bluetooth powered off (disconnecting phones), then starts the user's `spotifyd.service`.
   - Bluetooth → observes `spotifyd.service` stopped, then powers on Bluetooth and waits for its local A2DP Sink UUID.
-  - Shows "…" from `PlaybackController.switching`; one backend-owned 10-second deadline covers the whole transition. Failures retain the requested source with `sourceError` and manual Retry in the Left Column. T31 owns the full-screen loading overlay.
+  - Shows "…" from `PlaybackController.switching`; one backend-owned 10-second deadline covers the whole transition. `SourceTransitionOverlay` covers the entire touch UI with a translucent gray modal loader. Failures retain the requested source with `sourceError` and manual Retry in the Left Column.
   - Connections or metadata never select a source. No automatic phone connection or Play. Unexpected inactive-source streams may be muted/paused as supplemental safeguards.
 - **Reboot / Shutdown icons:** icon-only buttons in the top-right. Tapping opens a confirmation dialog (see §4.F).
 
@@ -200,7 +200,7 @@ All scripts assume you have first entered the Nix devShell: `nix develop` (or `d
 | `scripts/run.sh` | Run the local `build/bin/bierkistnRadio`, auto-picking `wayland` or `xcb` based on `WAYLAND_DISPLAY`. |
 | `scripts/clean.sh` | Remove the `build/` directory. |
 | `scripts/nix-build.sh` | Full reproducible Nix build → `result/bin/bierkistnRadio` (x86_64). Use for a clean verification. |
-| `scripts/nix-build-pi.sh` | Cross-build the `aarch64-linux` package for the Pi. |
+| `scripts/nix-build-pi.sh` | Build the native `aarch64-linux` package for the Pi, using an ARM builder or binfmt emulation from x86_64. |
 | `scripts/test.sh` | Build and run all tests via CTest (`tst_controllers`, `tst_release_date`, `tst_pairing`, `tst_source_switching`, and `tst_qml`). |
 
 For day-to-day iteration: `nix develop` → `scripts/setup.sh` (once) → `scripts/build.sh` → `scripts/run.sh`.
@@ -208,6 +208,8 @@ For day-to-day iteration: `nix develop` → `scripts/setup.sh` (once) → `scrip
 For a clean release check: `scripts/nix-build.sh` → `result/bin/bierkistnRadio`.
 
 For deploying to the Pi: the **system repo** inputs this flake and references `packages.aarch64-linux.bierkistnRadio`; you do not deploy from here directly.
+
+Deployment packages use `BUILD_TESTING=OFF`; dev CMake builds keep all test targets enabled. The app defaults to the Material controls style, and QML view tests use that same style. Follow [MANUAL_TEST_PLAN.md](./MANUAL_TEST_PLAN.md) for physical Pi/phone acceptance and recording outcomes.
 
 ## 8. Testing
 

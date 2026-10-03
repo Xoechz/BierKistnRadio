@@ -6,19 +6,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+include(CTest)
 
 find_package(Qt6 REQUIRED COMPONENTS
     Core
     Gui
     Network
+    DBus
     Qml
     Quick
     QuickControls2
     Svg
     VirtualKeyboard
-    Test
-    QuickTest
 )
+
+if(BUILD_TESTING)
+    find_package(Qt6 REQUIRED COMPONENTS Test QuickTest)
+endif()
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -74,6 +78,7 @@ qt_add_qml_module(bierkistn_core
         qml/WifiDialog.qml
         qml/TakeoverDialog.qml
         qml/PairingDialog.qml
+        qml/SourceTransitionOverlay.qml
 )
 
 # Embedded artwork and transport icons.
@@ -101,50 +106,36 @@ install(TARGETS bierkistnRadio
 )
 
 # --- Testing ---
-enable_testing()
+if(BUILD_TESTING)
+    # C++ controller unit tests
+    qt_add_executable(tst_controllers
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_controllers.cpp
+    )
+    target_link_libraries(tst_controllers PRIVATE bierkistn_core Qt6::Test)
+    add_test(NAME tst_controllers COMMAND tst_controllers)
 
-# C++ controller unit tests
-qt_add_executable(tst_controllers
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_controllers.cpp
-)
+    qt_add_executable(tst_release_date
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_release_date.cpp
+    )
+    target_link_libraries(tst_release_date PRIVATE bierkistn_core Qt6::Test)
+    add_test(NAME tst_release_date COMMAND tst_release_date)
 
-target_link_libraries(tst_controllers PRIVATE
-    bierkistn_core
-    Qt6::Test
-)
+    qt_add_executable(tst_pairing tests/tst_pairing.cpp)
+    target_link_libraries(tst_pairing PRIVATE bierkistn_core Qt6::Test)
+    add_test(NAME tst_pairing COMMAND tst_pairing)
 
-add_test(NAME tst_controllers COMMAND tst_controllers)
+    qt_add_executable(tst_source_switching tests/tst_source_switching.cpp)
+    target_link_libraries(tst_source_switching PRIVATE bierkistn_core Qt6::Test)
+    add_test(NAME tst_source_switching COMMAND tst_source_switching)
 
-qt_add_executable(tst_release_date
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_release_date.cpp
-)
-target_link_libraries(tst_release_date PRIVATE bierkistn_core Qt6::Test)
-add_test(NAME tst_release_date COMMAND tst_release_date)
-
-qt_add_executable(tst_pairing tests/tst_pairing.cpp)
-target_link_libraries(tst_pairing PRIVATE bierkistn_core Qt6::Test)
-add_test(NAME tst_pairing COMMAND tst_pairing)
-
-qt_add_executable(tst_source_switching tests/tst_source_switching.cpp)
-target_link_libraries(tst_source_switching PRIVATE bierkistn_core Qt6::Test)
-add_test(NAME tst_source_switching COMMAND tst_source_switching)
-
-# QML view tests
-qt_add_executable(tst_qml
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_qml.cpp
-)
-
-target_link_libraries(tst_qml PRIVATE
-    bierkistn_core
-    Qt6::QuickTest
-)
-
-target_compile_definitions(tst_qml PRIVATE
-    QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
-)
-
-add_test(NAME tst_qml COMMAND tst_qml)
-
-set_tests_properties(tst_qml PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QML_IMPORT_PATH=${CMAKE_BINARY_DIR}"
-)
+    # QML view tests
+    qt_add_executable(tst_qml ${CMAKE_CURRENT_SOURCE_DIR}/tests/tst_qml.cpp)
+    target_link_libraries(tst_qml PRIVATE bierkistn_core Qt6::QuickTest)
+    target_compile_definitions(tst_qml PRIVATE
+        QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    add_test(NAME tst_qml COMMAND tst_qml)
+    set_tests_properties(tst_qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Material;QML_IMPORT_PATH=${CMAKE_BINARY_DIR}"
+    )
+endif()

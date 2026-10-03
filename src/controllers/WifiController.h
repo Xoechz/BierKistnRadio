@@ -77,6 +77,11 @@ signals:
 
 private:
   void setError(const QString &message);
+  void setBackgroundError(const QString &key, const QString &message);
+  void subscribeManager();
+  void subscribeSignal(const QString &key, const QString &path,
+                       const QString &interface, const QString &signal,
+                       const char *slot);
   void setConnecting(bool connecting);
   void rebuildNetworks();
   void discoverWifiDevice();
@@ -109,6 +114,7 @@ private:
   bool m_connecting = false;
   QString m_ssid;
   QString m_errorMessage;
+  QMap<QString, QString> m_backgroundErrors;
   int m_signalStrength = 0;
 
 private slots:

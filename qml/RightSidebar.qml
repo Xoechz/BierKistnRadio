@@ -7,16 +7,18 @@ import BierKistnRadio
 Rectangle {
     id: root
     color: Theme.surfaceColor
+    property var wifiController: WifiController
+    property var playback: PlaybackController
 
     readonly property string btStatusText: {
-        const bt = PlaybackController.bluetooth
+        const bt = root.playback.bluetooth
         const name = bt.connectedDeviceName
         if (name !== "") {
             // Visible regardless of Source state (ADR 0008): you can always see
             // that a phone is connected, plus when it is silenced.
             return name + (bt.muted ? " · Muted" : "")
         }
-        switch (PlaybackController.playbackState) {
+        switch (root.playback.playbackState) {
         case PlaybackController.BluetoothWaiting:
             return "Discoverable"
         default:
@@ -25,8 +27,8 @@ Rectangle {
     }
 
     readonly property string wifiStatusText: {
-        if (WifiController.connected) {
-            return WifiController.ssid
+        if (root.wifiController.connected) {
+            return root.wifiController.ssid
         }
         return "Not connected"
     }
@@ -140,18 +142,19 @@ Rectangle {
                 color: Theme.secondaryTextColor
             }
             Label {
+                Layout.fillWidth: true
                 text: root.btStatusText
                 font.pixelSize: Theme.fontSizeMedium
                 color: Theme.textColor
-                wrapMode: Text.WordWrap
+                wrapMode: Text.Wrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
             }
             Label {
                 Layout.fillWidth: true
-                text: PlaybackController.bluetooth.errorMessage
-                visible: text !== "" && PlaybackController.playbackState !== PlaybackController.BluetoothWaiting
-                         && PlaybackController.playbackState !== PlaybackController.BluetoothActive
+                text: root.playback.bluetooth.errorMessage
+                visible: text !== "" && root.playback.playbackState !== PlaybackController.BluetoothWaiting
+                         && root.playback.playbackState !== PlaybackController.BluetoothActive
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.errorColor
                 wrapMode: Text.Wrap
@@ -170,10 +173,11 @@ Rectangle {
                 color: Theme.secondaryTextColor
             }
             Label {
+                Layout.fillWidth: true
                 text: root.wifiStatusText
                 font.pixelSize: Theme.fontSizeMedium
                 color: Theme.textColor
-                wrapMode: Text.WordWrap
+                wrapMode: Text.Wrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
             }
@@ -181,6 +185,7 @@ Rectangle {
 
         // ---------- Wifi Settings button ----------
         Button {
+            objectName: "wifiSettingsButton"
             text: "Wifi Settings"
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.touchTarget
@@ -190,5 +195,6 @@ Rectangle {
 
     WifiDialog {
         id: wifiDialog
+        wifiController: root.wifiController
     }
 }

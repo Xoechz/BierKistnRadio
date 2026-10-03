@@ -51,7 +51,7 @@ PairingAgent::PairingAgent(const QDBusConnection &bus, QObject *parent)
 PairingAgent::~PairingAgent() {
   finish(false, QStringLiteral("Application closed"));
   if (m_enabled) {
-    unregisterAgent();
+    unregisterAgent(false);
   }
   if (m_exported) {
     m_bus.unregisterObject(agentPath);
@@ -119,10 +119,32 @@ void PairingAgent::registerAgent() {
   });
 }
 
-void PairingAgent::unregisterAgent() {
+void PairingAgent::unregisterAgent(bool reportErrors) {
   auto call = managerCall(QStringLiteral("UnregisterAgent"));
   call.setAutoStartService(false);
-  m_bus.asyncCall(call, 5000);
+  if (!reportErrors) {
+    // During destruction there is no live UI to report to. Sending without a
+    // reply avoids an orphan watcher; BlueZ also removes agents on bus exit.
+    m_bus.send(call);
+    return;
+  }
+  const quint64 generation = m_generation;
+  auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(call, 5000), this);
+  connect(watcher, &QDBusPendingCallWatcher::finished, this,
+          [this, watcher, generation]() {
+    watcher->deleteLater();
+    if (generation != m_generation || !watcher->isError()) {
+      return;
+    }
+    const QString name = watcher->error().name();
+    if (name == QStringLiteral("org.bluez.Error.DoesNotExist") ||
+        name == QStringLiteral("org.freedesktop.DBus.Error.ServiceUnknown") ||
+        name == QStringLiteral("org.freedesktop.DBus.Error.NameHasNoOwner")) {
+      return; // already removed, including daemon shutdown
+    }
+    emit errorChanged(controllerErrorText(QStringLiteral("Bluetooth pairing unregistration"),
+        name + QStringLiteral(": ") + watcher->error().message()));
+  });
 }
 
 bool PairingAgent::trustedCall() {

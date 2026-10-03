@@ -6,23 +6,34 @@ import BierKistnRadio
 
 Popup {
     id: root
+    objectName: "wifiDialog"
+    parent: Overlay.overlay
+    property var wifiController: WifiController
+    // Input-method coordinates are window-relative, just like this parent.
+    // Keeping this boundary explicit also allows testing compact keyboard space.
+    property real keyboardTop: Qt.inputMethod.visible && Qt.inputMethod.keyboardRectangle.y > 0
+                               ? Qt.inputMethod.keyboardRectangle.y : parent.height
+    readonly property bool compact: keyboardTop < 400
     modal: true
-    width: 520
-    height: Math.min(480, Qt.inputMethod.visible && Qt.inputMethod.keyboardRectangle.y > 0
-                     ? Qt.inputMethod.keyboardRectangle.y : Overlay.overlay.height)
+    focus: true
+    width: Math.min(520, parent.width)
+    height: Math.min(480, keyboardTop)
+    padding: Theme.smallSpacing
     closePolicy: Popup.CloseOnEscape
-    x: (Overlay.overlay.width - width) / 2
-    y: Qt.inputMethod.visible ? 0 : (Overlay.overlay.height - height) / 2
+    x: (parent.width - width) / 2
+    y: (keyboardTop - height) / 2
 
     property string selectedSsid: ""
+    property bool selectedSecured: false
     property string password: ""
 
     onOpened: {
-        if (!WifiController.connecting) {
+        if (!root.wifiController.connecting) {
             root.selectedSsid = ""
+            root.selectedSecured = false
             root.password = ""
         }
-        WifiController.scan()
+        root.wifiController.scan()
     }
     onClosed: {
         passwordField.focus = false
@@ -43,13 +54,13 @@ Popup {
     }
 
     function connectSelected() {
-        WifiController.connect(root.selectedSsid, root.password)
+        root.wifiController.connect(root.selectedSsid, root.password)
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.defaultSpacing
-        spacing: Theme.defaultSpacing
+        anchors.margins: root.compact ? Theme.smallSpacing : Theme.defaultSpacing
+        spacing: root.compact ? Theme.smallSpacing : Theme.defaultSpacing
 
         RowLayout {
             Layout.fillWidth: true
@@ -63,24 +74,30 @@ Popup {
                 Layout.fillWidth: true
             }
             Button {
+                objectName: "wifiRefreshButton"
                 text: "⟳"
                 flat: true
-                onClicked: WifiController.scan()
+                Layout.preferredWidth: Theme.touchTarget
+                Layout.preferredHeight: Theme.touchTarget
+                onClicked: root.wifiController.scan()
             }
         }
 
         Label {
-            text: WifiController.errorMessage
-            visible: WifiController.errorMessage !== ""
+            objectName: "wifiErrorLabel"
+            text: root.wifiController.errorMessage
+            visible: text !== ""
             color: Theme.errorColor
             font.pixelSize: Theme.fontSizeSmall
             wrapMode: Text.WordWrap
+            maximumLineCount: root.compact ? 2 : 3
+            elide: Text.ElideRight
             Layout.fillWidth: true
         }
 
         Label {
             text: "Connecting to " + root.selectedSsid + "…"
-            visible: WifiController.connecting
+            visible: root.wifiController.connecting
             color: Theme.secondaryTextColor
             font.pixelSize: Theme.fontSizeSmall
             Layout.fillWidth: true
@@ -88,13 +105,15 @@ Popup {
 
         ListView {
             id: ssidList
+            objectName: "wifiNetworkList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            model: WifiController.networks
+            Layout.minimumHeight: 0
+            model: root.wifiController.networks
             delegate: ItemDelegate {
                 required property var modelData
-                enabled: !WifiController.connecting
+                enabled: !root.wifiController.connecting
                 width: ssidList.width
                 height: Theme.touchTarget
                 highlighted: root.selectedSsid === modelData.ssid
@@ -113,7 +132,7 @@ Popup {
                         Layout.fillWidth: true
                     }
                     Label {
-                        text: WifiController.connected && modelData.ssid === WifiController.ssid ? "✓" : ""
+                        text: root.wifiController.connected && modelData.ssid === root.wifiController.ssid ? "✓" : ""
                         font.pixelSize: Theme.fontSizeMedium
                         color: Theme.accentColor
                     }
@@ -126,12 +145,18 @@ Popup {
 
                 onClicked: {
                     root.selectedSsid = modelData.ssid
+                    root.selectedSecured = modelData.secured
                     root.password = ""
-                    if (!modelData.secured && !WifiController.connecting) {
+                    if (!modelData.secured && !root.wifiController.connecting) {
                         root.connectSelected()
                     } else if (modelData.secured) {
-                        passwordField.forceActiveFocus()
-                        Qt.inputMethod.show()
+                        const ssid = modelData.ssid
+                        Qt.callLater(function() {
+                            if (root.visible && root.selectedSecured && root.selectedSsid === ssid) {
+                                passwordField.forceActiveFocus()
+                                Qt.inputMethod.show()
+                            }
+                        })
                     }
                 }
             }
@@ -139,8 +164,10 @@ Popup {
 
         TextField {
             id: passwordField
+            objectName: "wifiPasswordField"
             Layout.fillWidth: true
-            visible: root.selectedSsid !== ""
+            Layout.preferredHeight: Theme.touchTarget
+            visible: root.selectedSsid !== "" && root.selectedSecured
             placeholderText: "Password for " + root.selectedSsid
             echoMode: TextInput.Password
             text: root.password
@@ -152,6 +179,7 @@ Popup {
             spacing: Theme.defaultSpacing
 
             Button {
+                objectName: "wifiCancelButton"
                 text: "Cancel"
                 flat: true
                 Layout.preferredHeight: Theme.touchTarget
@@ -159,8 +187,9 @@ Popup {
             }
             Item { Layout.fillWidth: true }
             Button {
+                objectName: "wifiConnectButton"
                 text: "Connect"
-                enabled: root.selectedSsid !== "" && !WifiController.connecting
+                enabled: root.selectedSsid !== "" && !root.wifiController.connecting
                 Layout.preferredHeight: Theme.touchTarget
                 onClicked: root.connectSelected()
             }
@@ -168,7 +197,7 @@ Popup {
     }
 
     Connections {
-        target: WifiController
+        target: root.wifiController
         function onConnectionSucceeded(ssid) {
             if (root.visible && ssid === root.selectedSsid) {
                 root.close()
