@@ -11,6 +11,7 @@
 #include <QVariantMap>
 #include <functional>
 #include <qqmlintegration.h>
+#include "PairingAgent.h"
 
 class BluetoothClient : public QObject {
   Q_OBJECT
@@ -49,6 +50,7 @@ class BluetoothClient : public QObject {
   Q_PROPERTY(
       bool isBluetoothPlaying READ isBluetoothPlaying NOTIFY statusChanged)
   Q_PROPERTY(bool muted READ muted NOTIFY mutedChanged)
+  Q_PROPERTY(PairingAgent *pairing READ pairing CONSTANT)
 
 public:
   enum TakeoverChoice { KeepCurrent, SwitchToNew };
@@ -78,6 +80,8 @@ public:
   bool positionPublished() const;
   bool isBluetoothPlaying() const;
   bool muted() const;
+  PairingAgent *pairing() const { return m_pairing; }
+  void setPairingEnabled(bool enabled);
 
   Q_INVOKABLE void resolveTakeover(TakeoverChoice choice);
   Q_INVOKABLE void ensureDiscoverable();
@@ -156,6 +160,7 @@ private:
     QString playerPath;
     QVariantMap playerProperties;
     bool connected = false;
+    bool paired = false;
   };
 
   void applyInterfaceAdded(const QString &path, const QString &interface,
@@ -220,6 +225,8 @@ private:
   DbusCallable m_dbusCall;
   CommandRunner m_runner;
   QDBusConnection m_bus;
+  PairingAgent *m_pairing = nullptr;
+  bool m_pairingEnabled = false;
   QDBusServiceWatcher *m_serviceWatcher = nullptr;
   quint64 m_objectManagerGeneration = 0;
   QMap<QString, QObject *> m_propertySubscribers;

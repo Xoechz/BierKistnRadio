@@ -88,6 +88,16 @@ BluetoothClient::BluetoothClient(QObject *parent)
 
 BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
     : QObject(parent), m_bus(bus) {
+  m_pairing = new PairingAgent(bus, this);
+  m_pairing->setDeviceLookup(
+      [this](const QString &path) {
+        return m_devices.contains(path) ? deviceDisplayName(m_devices.value(path)) : path;
+      },
+      [this](const QString &path) { return m_devices.value(path).paired; });
+  connect(m_pairing, &PairingAgent::errorChanged, this,
+          [this](const QString &error) {
+    setBackgroundError(QStringLiteral("pairingAgent"), error);
+  });
   m_dbusCall = [bus](const QString &service, const QString &objectPath,
                   const QString &interface, const QString &method,
                   const QVariantList &args,
@@ -473,7 +483,11 @@ void BluetoothClient::applyPropertiesChanged(
     return;
   }
   if (interface == kDeviceInterface) {
-    onDevicePropsChanged(path, props);
+    QVariantMap deviceProps = props;
+    if (invalidated.contains(QStringLiteral("Paired"))) {
+      deviceProps.insert(QStringLiteral("Paired"), false);
+    }
+    onDevicePropsChanged(path, deviceProps);
   } else if (interface == kMediaPlayerInterface) {
     const QString devicePath = m_playerOwners.value(path);
     if (devicePath.isEmpty() || !m_devices.contains(devicePath) ||
@@ -512,6 +526,7 @@ void BluetoothClient::onDeviceAdded(const QString &path,
   d.name = unwrapDbusVariant(props.value(kNameProp)).toString();
   d.alias = unwrapDbusVariant(props.value(kAliasProp)).toString();
   d.connected = unwrapDbusVariant(props.value(kConnectedProp)).toBool();
+  d.paired = unwrapDbusVariant(props.value(QStringLiteral("Paired"))).toBool();
   m_devices.insert(path, d);
   if (d.connected) {
     m_connectedOrder.append(path);
@@ -543,6 +558,9 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
     return;
   }
   DeviceState device = m_devices.value(path);
+  if (props.contains(QStringLiteral("Paired"))) {
+    device.paired = unwrapDbusVariant(props.value(QStringLiteral("Paired"))).toBool();
+  }
   const QString oldName = deviceDisplayName(device);
   if (props.contains(kAddressProp)) {
     device.address = unwrapDbusVariant(props.value(kAddressProp)).toString();
@@ -1059,7 +1077,13 @@ void BluetoothClient::setAdapterPowered(bool powered) {
     return;
   }
   m_adapterPowered = powered;
+  m_pairing->setEnabled(m_pairingEnabled && powered);
   emit adapterPoweredChanged();
+}
+
+void BluetoothClient::setPairingEnabled(bool enabled) {
+  m_pairingEnabled = enabled;
+  m_pairing->setEnabled(enabled && m_adapterPowered);
 }
 
 void BluetoothClient::setAdapterDiscoverable(bool discoverable) {

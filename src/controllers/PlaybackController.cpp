@@ -83,6 +83,7 @@ void PlaybackController::seek(qint64 positionMs) {
 }
 
 void PlaybackController::switchToSpotify() {
+  m_bluetooth->setPairingEnabled(false);
   // Hard-mute + AVRCP-pause the BT side, then recompute Spotify state
   // (ADR 0008: mute-before-pause, no frame relies on the phone).
   if (m_playbackState == BluetoothActive ||
@@ -95,6 +96,7 @@ void PlaybackController::switchToSpotify() {
 }
 
 void PlaybackController::switchToBluetooth() {
+  m_bluetooth->setPairingEnabled(true);
   // Pause spotifyd (its output shares the physical sink; pause IS its mute).
   m_spotify->pause();
   // Unmute only the active BT node.

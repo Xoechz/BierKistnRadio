@@ -199,7 +199,7 @@ All scripts assume you have first entered the Nix devShell: `nix develop` (or `d
 | `scripts/clean.sh` | Remove the `build/` directory. |
 | `scripts/nix-build.sh` | Full reproducible Nix build → `result/bin/bierkistnRadio` (x86_64). Use for a clean verification. |
 | `scripts/nix-build-pi.sh` | Cross-build the `aarch64-linux` package for the Pi. |
-| `scripts/test.sh` | Build and run all tests via CTest (`tst_controllers`, `tst_release_date`, and `tst_qml`). |
+| `scripts/test.sh` | Build and run all tests via CTest (`tst_controllers`, `tst_release_date`, `tst_pairing`, and `tst_qml`). |
 
 For day-to-day iteration: `nix develop` → `scripts/setup.sh` (once) → `scripts/build.sh` → `scripts/run.sh`.
 
@@ -213,6 +213,7 @@ The project has C++ and QML test layers, both wired into CTest:
 
 - **C++ controller tests** (`tst_controllers`): Qt Test unit tests for defaults, property changes, and clamping, plus private-bus mock MPRIS2, NetworkManager, and BlueZ integration tests. No QML.
 - **MusicBrainz tests** (`tst_release_date`): Qt Test with a local HTTP server for lookup results, caching, failure states, and request pacing.
+- **Pairing tests** (`tst_pairing`): private-bus BlueZ AgentManager/Agent1 tests for registration, explicit confirmation, rejection, timeout, cancellation, stale requests, daemon recovery, and paired-device service authorization.
 - **QML view tests** (`tst_qml`): Qt Quick Test cases in `tests/tst_*.qml`. Run offscreen (`QT_QPA_PLATFORM=offscreen`). Import the `BierKistnRadio` module to test singletons and view behavior.
 
 The core library (`bierkistn_core`) — controllers + QML module — is a static lib linked by both the app and the tests, so tests see the exact same types as the app.

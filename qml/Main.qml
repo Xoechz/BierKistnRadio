@@ -53,6 +53,7 @@ ApplicationWindow {
     }
 
     TakeoverDialog {}
+    PairingDialog {}
 
     InputPanel {
         id: keyboardPanel

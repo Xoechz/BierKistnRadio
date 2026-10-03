@@ -30,6 +30,7 @@ qt_add_library(bierkistn_core STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PlaybackController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/SpotifyClient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/BluetoothClient.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PairingAgent.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/WifiController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/VolumeController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers/PowerController.cpp
@@ -71,6 +72,7 @@ qt_add_qml_module(bierkistn_core
         qml/RightSidebar.qml
         qml/WifiDialog.qml
         qml/TakeoverDialog.qml
+        qml/PairingDialog.qml
 )
 
 # Embedded artwork and transport icons.
@@ -117,6 +119,10 @@ qt_add_executable(tst_release_date
 )
 target_link_libraries(tst_release_date PRIVATE bierkistn_core Qt6::Test)
 add_test(NAME tst_release_date COMMAND tst_release_date)
+
+qt_add_executable(tst_pairing tests/tst_pairing.cpp)
+target_link_libraries(tst_pairing PRIVATE bierkistn_core Qt6::Test)
+add_test(NAME tst_pairing COMMAND tst_pairing)
 
 # QML view tests
 qt_add_executable(tst_qml
