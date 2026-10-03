@@ -5,6 +5,7 @@
 #include <QDBusObjectPath>
 #include <QDBusReply>
 #include <QDBusServiceWatcher>
+#include <QMap>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -80,10 +81,14 @@ private:
   bool m_hasTrack = false;
   bool m_available = false;
   QString m_errorMessage;
+  QMap<QString, QString> m_backgroundErrors;
   quint64 m_commandGeneration = 0;
+  quint64 m_stateGeneration = 0;
+  bool m_stateReadPending = false;
   QString m_mprisService;
   QDBusConnection m_bus;
   QString m_subscribedName;
+  bool m_mprisSubscribed = false;
   bool m_daemonPresent = false;
   QDBusObjectPath m_trackId;
   QDBusServiceWatcher *m_watcher = nullptr;
@@ -101,6 +106,7 @@ private:
   void setAvailable(bool available);
   void setDaemonPresent(bool present);
   void setError(const QString &error);
+  void setBackgroundError(const QString &key, const QString &error);
   void sendPlayerCommand(const QString &method, const QVariantList &args = {});
 
 private slots:

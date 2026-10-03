@@ -98,6 +98,16 @@ Rectangle {
             }
         }
 
+        Label {
+            objectName: "volumeError"
+            Layout.fillWidth: true
+            text: VolumeController.errorMessage
+            visible: text !== ""
+            color: Theme.errorColor
+            font.pixelSize: Theme.fontSizeSmall
+            wrapMode: Text.WordWrap
+        }
+
         // ---------- Dark mode ----------
         RowLayout {
             Layout.fillWidth: true

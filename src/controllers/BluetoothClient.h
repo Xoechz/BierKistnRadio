@@ -186,6 +186,7 @@ private:
   void setTakeoverResolving(bool resolving);
   void setTakeoverError(const QString &error);
   void setError(const QString &error);
+  void setBackgroundError(const QString &key, const QString &error);
   void sendPlayerCommand(const QString &playerPath, const QString &method);
   void updateTakeoverIncoming();
   void setTakeoverPending(bool pending);
@@ -235,6 +236,7 @@ private:
   QString m_takeoverTargetPath;
   QString m_takeoverError;
   QString m_errorMessage;
+  QMap<QString, QString> m_backgroundErrors;
   bool m_takeoverPending = false;
   bool m_takeoverResolving = false;
   quint64 m_takeoverAttempt = 0;

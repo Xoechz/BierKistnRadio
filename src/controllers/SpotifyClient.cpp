@@ -5,6 +5,7 @@
 #include <QDBusConnectionInterface>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDBusServiceWatcher>
 #include <QTimer>
 
@@ -78,7 +79,10 @@ QString SpotifyClient::artUrl() const { return m_artUrl; }
 qint64 SpotifyClient::position() const { return m_position; }
 qint64 SpotifyClient::duration() const { return m_duration; }
 bool SpotifyClient::isSpotifyPlaying() const { return m_isSpotifyPlaying; }
-QString SpotifyClient::errorMessage() const { return m_errorMessage; }
+QString SpotifyClient::errorMessage() const {
+  return !m_errorMessage.isEmpty() ? m_errorMessage
+      : (m_backgroundErrors.isEmpty() ? QString() : m_backgroundErrors.first());
+}
 bool SpotifyClient::hasTrack() const { return m_hasTrack; }
 bool SpotifyClient::isAvailable() const {
   return !m_mprisService.isEmpty() || m_daemonPresent;
@@ -109,11 +113,23 @@ void SpotifyClient::seek(qint64 positionMs) {
 }
 
 void SpotifyClient::setError(const QString &error) {
-  if (m_errorMessage == error) {
-    return;
-  }
+  const QString previous = errorMessage();
   m_errorMessage = error;
-  emit errorMessageChanged();
+  if (previous != errorMessage()) {
+    emit errorMessageChanged();
+  }
+}
+
+void SpotifyClient::setBackgroundError(const QString &key, const QString &error) {
+  const QString previous = errorMessage();
+  if (error.isEmpty()) {
+    m_backgroundErrors.remove(key);
+  } else {
+    m_backgroundErrors.insert(key, error);
+  }
+  if (previous != errorMessage()) {
+    emit errorMessageChanged();
+  }
 }
 
 void SpotifyClient::sendPlayerCommand(const QString &method,
@@ -158,12 +174,19 @@ void SpotifyClient::setMetadataForTest(const QVariantMap &metadata) {
 void SpotifyClient::discoverServices() {
   auto *bus = m_bus.interface();
   if (!bus) {
+    setBackgroundError(QStringLiteral("discovery"), controllerErrorText(
+        QStringLiteral("Spotify discovery"),
+        QStringLiteral("service not running: session bus unavailable")));
     return;
   }
   QDBusReply<QStringList> reply = bus->registeredServiceNames();
   if (!reply.isValid()) {
+    setBackgroundError(QStringLiteral("discovery"), controllerErrorText(
+        QStringLiteral("Spotify discovery"),
+        reply.error().name() + QStringLiteral(": ") + reply.error().message()));
     return;
   }
+  setBackgroundError(QStringLiteral("discovery"), QString());
 
   bool daemonSeen = false;
   for (const QString &name : reply.value()) {
@@ -177,10 +200,23 @@ void SpotifyClient::discoverServices() {
       // resolution failure is what logs "Could not connect
       // org.freedesktop.DBus.Properties to onMprisPropertiesChanged"). A
       // ':1.x' sender is already "known", so connect() succeeds.
-      const QString owner = bus->serviceOwner(name).value();
+      const QDBusReply<QString> ownerReply = bus->serviceOwner(name);
+      if (!ownerReply.isValid()) {
+        // A session can disappear between ListNames and GetNameOwner.
+        if (ownerReply.error().name() !=
+            QStringLiteral("org.freedesktop.DBus.Error.NameHasNoOwner")) {
+          setBackgroundError(QStringLiteral("discovery"), controllerErrorText(
+              QStringLiteral("Spotify owner lookup"), ownerReply.error().name() +
+                  QStringLiteral(": ") + ownerReply.error().message()));
+        }
+        continue;
+      }
+      const QString owner = ownerReply.value();
       if (owner != m_subscribedName) {
         unsubscribeFromMpris();
         m_subscribedName = owner.isEmpty() ? name : owner;
+        subscribeToMpris();
+      } else if (!m_mprisSubscribed) {
         subscribeToMpris();
       }
       // Safety net: even if a signal subscription is ever late/lost, re-pull
@@ -236,9 +272,12 @@ void SpotifyClient::onServiceOwnerChanged(const QString &name,
     fetchInitialMprisState();
     setAvailable(true);
   } else {
+    ++m_commandGeneration;
+    setError(QString());
     m_mprisService.clear();
     unsubscribeFromMpris();
     m_subscribedName.clear();
+    setBackgroundError(QStringLiteral("state"), QString());
     m_trackId = QDBusObjectPath();
     setTrackPresence(false);
     if (!m_daemonPresent) {
@@ -248,39 +287,60 @@ void SpotifyClient::onServiceOwnerChanged(const QString &name,
 }
 
 void SpotifyClient::subscribeToMpris() {
-  m_bus.connect(
+  m_mprisSubscribed = m_bus.connect(
       m_subscribedName, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
       this, SLOT(onMprisPropertiesChanged(QString, QVariantMap, QStringList)));
+  const QDBusError error = m_bus.lastError();
+  setBackgroundError(QStringLiteral("subscription"), m_mprisSubscribed ? QString() :
+      controllerErrorText(QStringLiteral("Spotify state subscription"),
+          error.isValid() ? error.name() + QStringLiteral(": ") + error.message()
+                          : QStringLiteral("could not subscribe to PropertiesChanged")));
 }
 
 void SpotifyClient::unsubscribeFromMpris() {
+  ++m_stateGeneration;
+  m_stateReadPending = false;
+  m_mprisSubscribed = false;
+  setBackgroundError(QStringLiteral("subscription"), QString());
   m_bus.disconnect(
       m_subscribedName, kPlayerPath, kPropertiesInterface, kPropertiesChanged,
       this, SLOT(onMprisPropertiesChanged(QString, QVariantMap, QStringList)));
 }
 
 void SpotifyClient::fetchInitialMprisState() {
+  if (m_stateReadPending || m_mprisService.isEmpty()) {
+    return;
+  }
+  m_stateReadPending = true;
+  const quint64 generation = ++m_stateGeneration;
+  const QString service = m_mprisService;
   QDBusMessage msg = QDBusMessage::createMethodCall(
       m_mprisService, kPlayerPath, kPropertiesInterface, "GetAll");
   msg << kPlayerInterface;
-  QDBusReply<QVariantMap> reply = m_bus.call(msg);
-
-  if (!reply.isValid()) {
-    return;
-  }
-
-  QVariantMap props = reply.value();
-  if (props.contains(kPlaybackStatus)) {
-    updatePlaybackStatus(props[kPlaybackStatus].toString());
-  }
-  if (props.contains(kMetadata)) {
-    QDBusArgument arg = props[kMetadata].value<QDBusArgument>();
-    updateFromMetadata(qdbus_cast<QVariantMap>(arg));
-  }
-  if (props.contains(kPosition)) {
-    m_position = props[kPosition].toLongLong() / 1000;
-    emit positionChanged();
-  }
+  auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(msg, 5000), this);
+  connect(watcher, &QDBusPendingCallWatcher::finished, this,
+          [this, watcher, generation, service]() {
+            const QDBusPendingReply<QVariantMap> reply = *watcher;
+            watcher->deleteLater();
+            if (generation != m_stateGeneration || service != m_mprisService) {
+              return;
+            }
+            m_stateReadPending = false;
+            if (reply.isError()) {
+              // Releasing the session name is normal on phone disconnect or
+              // intentional spotifyd shutdown; only report failed live reads.
+              if (reply.error().type() != QDBusError::ServiceUnknown &&
+                  reply.error().name() !=
+                      QStringLiteral("org.freedesktop.DBus.Error.NameHasNoOwner")) {
+                setBackgroundError(QStringLiteral("state"), controllerErrorText(
+                    QStringLiteral("Spotify state read"), reply.error().name() +
+                        QStringLiteral(": ") + reply.error().message()));
+              }
+              return;
+            }
+            setBackgroundError(QStringLiteral("state"), QString());
+            onMprisPropertiesChanged(kPlayerInterface, reply.value(), {});
+          });
 }
 
 void SpotifyClient::onMprisPropertiesChanged(const QString &interface,
@@ -291,14 +351,25 @@ void SpotifyClient::onMprisPropertiesChanged(const QString &interface,
   if (interface != kPlayerInterface) {
     return;
   }
+  if (!changed.isEmpty()) {
+    setBackgroundError(QStringLiteral("state"), QString());
+  }
+
+  // A live update supersedes a pending snapshot from before that update.
+  if (m_stateReadPending) {
+    ++m_stateGeneration;
+    m_stateReadPending = false;
+  }
 
   if (changed.contains(kPlaybackStatus)) {
     updatePlaybackStatus(changed[kPlaybackStatus].toString());
   }
 
   if (changed.contains(kMetadata)) {
-    QDBusArgument arg = changed[kMetadata].value<QDBusArgument>();
-    updateFromMetadata(qdbus_cast<QVariantMap>(arg));
+    const QVariant metadata = changed.value(kMetadata);
+    updateFromMetadata(metadata.canConvert<QDBusArgument>()
+                           ? qdbus_cast<QVariantMap>(metadata.value<QDBusArgument>())
+                           : metadata.toMap());
   }
 
   if (changed.contains(kPosition)) {

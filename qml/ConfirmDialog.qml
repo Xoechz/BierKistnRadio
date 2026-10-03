@@ -8,7 +8,7 @@ Dialog {
     id: root
     modal: true
     width: 380
-    height: 240
+    height: 280
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape
     anchors.centerIn: Overlay.overlay
@@ -40,8 +40,19 @@ Dialog {
 
         Label {
             text: "Auto-dismissing in " + root.countdown + "s"
+            visible: !PowerController.busy && PowerController.errorMessage === ""
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryTextColor
+        }
+
+        Label {
+            objectName: "powerError"
+            Layout.fillWidth: true
+            text: PowerController.errorMessage
+            visible: text !== ""
+            wrapMode: Text.WordWrap
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.errorColor
         }
 
         Item { Layout.fillHeight: true }
@@ -59,6 +70,7 @@ Dialog {
             }
             Button {
                 text: "Confirm"
+                enabled: !PowerController.busy
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
                 Material.background: Theme.errorColor
@@ -68,13 +80,13 @@ Dialog {
                     } else {
                         PowerController.reboot()
                     }
-                    root.close()
                 }
             }
         }
     }
 
     function openFor(act) {
+        PowerController.clearError()
         root.action = act
         root.countdown = 10
         root.open()
@@ -84,12 +96,17 @@ Dialog {
         id: autoDismiss
         interval: 1000
         repeat: true
-        running: root.visible
+        running: root.visible && !PowerController.busy && PowerController.errorMessage === ""
         onTriggered: {
             root.countdown -= 1
             if (root.countdown <= 0) {
                 root.close()
             }
         }
+    }
+
+    Connections {
+        target: PowerController
+        function onCommandSucceeded() { root.close() }
     }
 }

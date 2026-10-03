@@ -177,14 +177,20 @@ void BluetoothClient::subscribeObjectManager() {
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesRemoved"), this,
       SLOT(onInterfacesRemoved(QDBusObjectPath, QStringList)));
-  m_bus.connect(
+  const bool added = m_bus.connect(
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesAdded"), this,
       SLOT(onInterfacesAdded(QDBusObjectPath, QMap<QString, QVariantMap>)));
-  m_bus.connect(
+  const bool removed = m_bus.connect(
       kBlueZService, kBlueZRoot, kObjectManagerInterface,
       QStringLiteral("InterfacesRemoved"), this,
       SLOT(onInterfacesRemoved(QDBusObjectPath, QStringList)));
+  const QDBusError error = m_bus.lastError();
+  setBackgroundError(QStringLiteral("objectManagerSubscription"),
+      added && removed ? QString() : controllerErrorText(
+          QStringLiteral("Bluetooth object subscription"),
+          error.isValid() ? error.name() + QStringLiteral(": ") + error.message()
+                          : QStringLiteral("could not subscribe to ObjectManager")));
 }
 
 void BluetoothClient::refreshManagedObjects() {
@@ -193,10 +199,22 @@ void BluetoothClient::refreshManagedObjects() {
   m_dbusCall(kBlueZService, kBlueZRoot, kObjectManagerInterface,
               QStringLiteral("GetManagedObjects"), QVariantList(),
               [self, generation](const QVariant &reply, const QString &error) {
-                if (!self || generation != self->m_objectManagerGeneration ||
-                    !error.isEmpty() || !reply.canConvert<QDBusArgument>()) {
+                if (!self || generation != self->m_objectManagerGeneration) {
                   return;
                 }
+                if (!error.isEmpty()) {
+                  self->setBackgroundError(QStringLiteral("objectManager"),
+                      controllerErrorText(QStringLiteral("Bluetooth device lookup"), error));
+                  return;
+                }
+                if (!reply.canConvert<QDBusArgument>() ||
+                    reply.value<QDBusArgument>().currentSignature() !=
+                        QStringLiteral("a{oa{sa{sv}}}")) {
+                  self->setBackgroundError(QStringLiteral("objectManager"),
+                      QStringLiteral("Bluetooth device lookup failed: invalid D-Bus reply"));
+                  return;
+                }
+                self->setBackgroundError(QStringLiteral("objectManager"), QString());
                 const QDBusArgument arg = reply.value<QDBusArgument>();
                 // a{oa{sa{sv}}}: path -> { interface -> props }
                 QMap<QString, QVariantMap> players;
@@ -227,6 +245,11 @@ void BluetoothClient::refreshManagedObjects() {
 
 void BluetoothClient::clearBluezState() {
   ++m_objectManagerGeneration;
+  const QString previousError = errorMessage();
+  m_backgroundErrors.clear();
+  if (previousError != errorMessage()) {
+    emit errorMessageChanged();
+  }
   for (const QString &path : m_propertySubscribers.keys()) {
     unsubscribeProperties(path);
   }
@@ -273,7 +296,10 @@ QString BluetoothClient::takeoverIncomingName() const {
 }
 bool BluetoothClient::takeoverResolving() const { return m_takeoverResolving; }
 QString BluetoothClient::takeoverError() const { return m_takeoverError; }
-QString BluetoothClient::errorMessage() const { return m_errorMessage; }
+QString BluetoothClient::errorMessage() const {
+  return !m_errorMessage.isEmpty() ? m_errorMessage
+      : (m_backgroundErrors.isEmpty() ? QString() : m_backgroundErrors.first());
+}
 bool BluetoothClient::adapterPowered() const { return m_adapterPowered; }
 bool BluetoothClient::adapterDiscoverable() const {
   return m_adapterDiscoverable;
@@ -375,12 +401,20 @@ void BluetoothClient::subscribeProperties(const QString &path,
                     kPropertiesSignal, subscriber,
                     SLOT(onPropertiesChanged(QString, QVariantMap, QStringList)))) {
     m_propertySubscribers.insert(path, subscriber);
+    setBackgroundError(QStringLiteral("properties:") + path, QString());
   } else {
+    const QDBusError error = m_bus.lastError();
+    setBackgroundError(QStringLiteral("properties:") + path, controllerErrorText(
+        QStringLiteral("Bluetooth state subscription"),
+        error.isValid() ? error.name() + QStringLiteral(": ") + error.message()
+                        : QStringLiteral("could not subscribe to PropertiesChanged")));
     subscriber->deleteLater();
   }
 }
 
 void BluetoothClient::unsubscribeProperties(const QString &path) {
+  setBackgroundError(QStringLiteral("properties:") + path, QString());
+  setBackgroundError(QStringLiteral("player:") + path, QString());
   QObject *subscriber = m_propertySubscribers.take(path);
   if (!subscriber) {
     return;
@@ -456,6 +490,7 @@ void BluetoothClient::applyPropertiesChanged(
     m_devices.insert(devicePath, device);
     if (devicePath == m_activeDevicePath) {
       ++m_playerFetchGeneration;
+      setBackgroundError(QStringLiteral("player:") + path, QString());
       resetAvrcp();
       applyPlayerProps(device.playerProperties);
     }
@@ -466,6 +501,7 @@ void BluetoothClient::applyPropertiesChanged(
 
 void BluetoothClient::onDeviceAdded(const QString &path,
                                      const QVariantMap &props) {
+  subscribeProperties(path, kDeviceInterface);
   if (m_devices.contains(path)) {
     onDevicePropsChanged(path, props);
     return;
@@ -488,7 +524,6 @@ void BluetoothClient::onDeviceAdded(const QString &path,
       m_adapterPath = adapter;
     }
   }
-  subscribeProperties(path, kDeviceInterface);
   recalculate();
   for (auto it = m_deferredPlayers.begin(); it != m_deferredPlayers.end();) {
     if (it.key().startsWith(path + QLatin1Char('/'))) {
@@ -729,6 +764,8 @@ void BluetoothClient::setActiveDevice(const QString &path) {
   if (m_activeDevicePath == path) {
     return;
   }
+  setBackgroundError(QStringLiteral("player:") +
+      m_devices.value(m_activeDevicePath).playerPath, QString());
   m_activeDevicePath = path;
   ++m_playerFetchGeneration;
   resetAvrcp();
@@ -752,12 +789,27 @@ void BluetoothClient::refreshActivePlayer() {
              QStringLiteral("GetAll"), QVariantList{kMediaPlayerInterface},
              [self, devicePath, playerPath, generation](
                  const QVariant &reply, const QString &error) {
-               if (!self || !error.isEmpty() || !reply.isValid() ||
+               if (!self ||
                    generation != self->m_playerFetchGeneration ||
                    self->m_activeDevicePath != devicePath ||
                    self->m_devices.value(devicePath).playerPath != playerPath) {
                  return;
                }
+               const QString key = QStringLiteral("player:") + playerPath;
+               if (!error.isEmpty()) {
+                 self->setBackgroundError(key, controllerErrorText(
+                      QStringLiteral("Bluetooth player read"), error));
+                 return;
+               }
+               if (reply.metaType() != QMetaType::fromType<QVariantMap>() &&
+                    (!reply.canConvert<QDBusArgument>() ||
+                     reply.value<QDBusArgument>().currentSignature() !=
+                         QStringLiteral("a{sv}"))) {
+                 self->setBackgroundError(key,
+                      QStringLiteral("Bluetooth player read failed: invalid D-Bus reply"));
+                 return;
+               }
+               self->setBackgroundError(key, QString());
                DeviceState device = self->m_devices.value(devicePath);
                device.playerProperties = decodedProperties(reply);
                self->m_devices.insert(devicePath, device);
@@ -825,11 +877,23 @@ void BluetoothClient::setTakeoverError(const QString &error) {
 }
 
 void BluetoothClient::setError(const QString &error) {
-  if (m_errorMessage == error) {
-    return;
-  }
+  const QString previous = errorMessage();
   m_errorMessage = error;
-  emit errorMessageChanged();
+  if (previous != errorMessage()) {
+    emit errorMessageChanged();
+  }
+}
+
+void BluetoothClient::setBackgroundError(const QString &key, const QString &error) {
+  const QString previous = errorMessage();
+  if (error.isEmpty()) {
+    m_backgroundErrors.remove(key);
+  } else {
+    m_backgroundErrors.insert(key, error);
+  }
+  if (previous != errorMessage()) {
+    emit errorMessageChanged();
+  }
 }
 
 void BluetoothClient::ensureDiscoverable() {

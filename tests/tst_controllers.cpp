@@ -1,6 +1,7 @@
 #include "ArtCache.h"
 #include "BluetoothClient.h"
 #include "PlaybackController.h"
+#include "PowerController.h"
 #include "SpotifyClient.h"
 #include "VolumeController.h"
 #include "WifiController.h"
@@ -28,6 +29,9 @@
 
 class MockBlueZObjects : public QDBusVirtualObject {
 public:
+  QString lookupError;
+  QString playerError;
+  bool invalidLookupReply = false;
   QString introspect(const QString &) const override {
     return QStringLiteral("<interface name=\"org.freedesktop.DBus.ObjectManager\">"
                           "<method name=\"GetManagedObjects\">"
@@ -36,9 +40,29 @@ public:
   }
 
   bool handleMessage(const QDBusMessage &message,
-                     const QDBusConnection &connection) override {
+                      const QDBusConnection &connection) override {
+    if (message.member() == QStringLiteral("GetAll")) {
+      if (!playerError.isEmpty()) {
+        connection.send(message.createErrorReply(playerError, QStringLiteral("Mock read failure")));
+      } else {
+        connection.send(message.createReply(QVariantMap{
+            {QStringLiteral("Status"), QStringLiteral("playing")},
+            {QStringLiteral("Track"), QVariantMap{
+                 {QStringLiteral("Title"), QStringLiteral("Initial Track")},
+                 {QStringLiteral("Duration"), 80000u}}}}));
+      }
+      return true;
+    }
     if (message.member() != QStringLiteral("GetManagedObjects")) {
       return false;
+    }
+    if (!lookupError.isEmpty()) {
+      connection.send(message.createErrorReply(lookupError, QStringLiteral("Mock lookup failure")));
+      return true;
+    }
+    if (invalidLookupReply) {
+      connection.send(message.createReply(QStringLiteral("invalid snapshot")));
+      return true;
     }
     QDBusArgument arg;
     arg.beginMap(QMetaType::fromType<QDBusObjectPath>(),
@@ -72,6 +96,10 @@ class MockMprisPlayer : public QDBusVirtualObject {
 public:
   QList<QDBusMessage> calls;
   bool denyCommands = false;
+  QString readError;
+  bool invalidReadReply = false;
+  bool holdReads = false;
+  QList<QDBusMessage> pendingReads;
   QVariantMap metadata{{QStringLiteral("xesam:title"), QStringLiteral("Initial Track")},
                        {QStringLiteral("xesam:artist"),
                         QStringList{QStringLiteral("First Artist"),
@@ -101,6 +129,19 @@ public:
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &connection) override {
     if (message.member() == QStringLiteral("GetAll")) {
+      if (holdReads) {
+        message.setDelayedReply(true);
+        pendingReads.append(message);
+        return true;
+      }
+      if (!readError.isEmpty()) {
+        connection.send(message.createErrorReply(readError, QStringLiteral("Mock read failure")));
+        return true;
+      }
+      if (invalidReadReply) {
+        connection.send(message.createReply(QStringLiteral("invalid properties")));
+        return true;
+      }
       connection.send(message.createReply(QVariantMap{
           {QStringLiteral("PlaybackStatus"), QStringLiteral("Playing")},
           {QStringLiteral("Metadata"), metadata},
@@ -245,9 +286,13 @@ private slots:
   void testBluetoothDeviceWithoutNameIsDetected();
   void testBluetoothPlayerAddedBeforeDevice();
   void testBluetoothPrivateBusObjectManagerAndProperties();
+  void testBackgroundDbusReadErrors_data();
+  void testBackgroundDbusReadErrors();
+  void testDisconnectedBusErrors();
   void testSpotifyClientDefaults();
   void testSpotifyFirstArtistFromMetadata();
   void testSpotifyPrivateBusMprisLifecycle();
+  void testSpotifyIgnoresStaleStateReplies();
   void testVolumeControllerDefaults();
   void testVolumeControllerParse();
   void testVolumeControllerReadsFromWpctl();
@@ -255,6 +300,8 @@ private slots:
   void testVolumeControllerIssuesSetVolumeCommand();
   void testVolumeControllerClamping();
   void testVolumeControllerNoReadBackRace();
+  void testVolumeCommandErrorsAndRecovery();
+  void testPowerCommandErrorsAndRetry();
   void testVolumeMuteRestoresLastLevel();
   void testVolumeMuteFallsBackToTenPercent();
   void testVolumeMuteTracksSliderAndExternalChanges();
@@ -1077,9 +1124,13 @@ void TestControllers::testBluetoothTransportErrorAndRecovery() {
   QString failure = QStringLiteral("org.freedesktop.DBus.Error.ServiceUnknown");
   c.setDbusCallableForTest(
       [&failure](const QString &, const QString &, const QString &,
-                 const QString &, const QVariantList &,
-                 const std::function<void(const QVariant &, const QString &)> &finished) {
-        finished(QVariant(), failure);
+                  const QString &method, const QVariantList &,
+                  const std::function<void(const QVariant &, const QString &)> &finished) {
+        if (method == QStringLiteral("GetAll")) {
+          finished(QVariantMap{{QStringLiteral("Status"), QStringLiteral("playing")}}, QString());
+        } else {
+          finished(QVariant(), failure);
+        }
       });
   const QString path = QStringLiteral("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF");
   c.bluezObjectAddedForTest(path, QStringLiteral("org.bluez.Device1"),
@@ -1633,7 +1684,8 @@ void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties() {
   QVERIFY(bus.isConnected());
   QVERIFY(bus.registerService(QStringLiteral("org.bluez")));
   MockBlueZObjects objects;
-  QVERIFY(bus.registerVirtualObject(QStringLiteral("/"), &objects));
+  QVERIFY(bus.registerVirtualObject(QStringLiteral("/"), &objects,
+                                    QDBusConnection::SubPath));
 
   {
     BluetoothClient client(bus);
@@ -1706,6 +1758,115 @@ void TestControllers::testSpotifyClientDefaults() {
   QCOMPARE(c.duration(), qint64(0));
   QCOMPARE(c.hasTrack(), false);
   QCOMPARE(c.isAvailable(), false);
+}
+
+void TestControllers::testBackgroundDbusReadErrors_data() {
+  QTest::addColumn<QString>("error");
+  QTest::addColumn<QString>("expected");
+  QTest::newRow("permission") << QStringLiteral("org.freedesktop.DBus.Error.AccessDenied")
+                              << QStringLiteral("Permission denied — check system config");
+  QTest::newRow("timeout") << QStringLiteral("org.freedesktop.DBus.Error.NoReply")
+                           << QStringLiteral("timed out — try again");
+  QTest::newRow("operation") << QStringLiteral("org.bluez.Error.Failed")
+                             << QStringLiteral("failed:");
+  QTest::newRow("invalid-reply") << QString() << QStringLiteral("failed:");
+}
+
+void TestControllers::testBackgroundDbusReadErrors() {
+  QFETCH(QString, error);
+  QFETCH(QString, expected);
+  QProcess daemon;
+  daemon.start(QStringLiteral("dbus-daemon"),
+               {QStringLiteral("--session"), QStringLiteral("--nofork"),
+                QStringLiteral("--print-address=1")});
+  QVERIFY(daemon.waitForStarted());
+  QVERIFY(daemon.waitForReadyRead(5000));
+  const QString address = QString::fromUtf8(daemon.readAllStandardOutput()).trimmed();
+  const QString name = QStringLiteral("read-error-test-%1").arg(
+      QUuid::createUuid().toString(QUuid::WithoutBraces));
+  QDBusConnection bus = QDBusConnection::connectToBus(address, name);
+  const QString bluezName = name + QStringLiteral("-bluez");
+  QDBusConnection bluezBus = QDBusConnection::connectToBus(address, bluezName);
+  const auto cleanup = qScopeGuard([&]() {
+    QDBusConnection::disconnectFromBus(name);
+    QDBusConnection::disconnectFromBus(bluezName);
+    daemon.terminate();
+    daemon.waitForFinished(3000);
+  });
+  QVERIFY(bus.isConnected());
+  const QString service = QStringLiteral("org.mpris.MediaPlayer2.spotifyd.instance42");
+  QVERIFY(bus.registerService(service));
+  QVERIFY(bluezBus.registerService(QStringLiteral("org.bluez")));
+  MockBlueZObjects objects;
+  objects.lookupError = error;
+  objects.invalidLookupReply = error.isEmpty();
+  MockMprisPlayer player;
+  player.readError = error;
+  player.invalidReadReply = error.isEmpty();
+  QVERIFY(bluezBus.registerVirtualObject(QStringLiteral("/"), &objects, QDBusConnection::SubPath));
+  QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/mpris/MediaPlayer2"), &player));
+
+  SpotifyClient spotify(bus);
+  BluetoothClient bluetooth(bus);
+  QTRY_VERIFY_WITH_TIMEOUT(spotify.errorMessage().contains(expected), 3000);
+  QTRY_VERIFY_WITH_TIMEOUT(bluetooth.errorMessage().contains(expected), 3000);
+  QVERIFY(spotify.isAvailable());
+  QVERIFY(!spotify.hasTrack());
+  QVERIFY(!bluetooth.hasConnectedDevice());
+
+  // An unrelated successful command must not hide a failed background read.
+  spotify.next();
+  QTRY_COMPARE_WITH_TIMEOUT(player.calls.size(), 1, 3000);
+  QVERIFY(spotify.errorMessage().contains(expected));
+
+  player.readError.clear();
+  player.invalidReadReply = false;
+  objects.lookupError.clear();
+  objects.invalidLookupReply = false;
+  QVERIFY(bus.unregisterService(service));
+  QVERIFY(bluezBus.unregisterService(QStringLiteral("org.bluez")));
+  QTRY_VERIFY_WITH_TIMEOUT(!spotify.isAvailable(), 3000);
+  QCOMPARE(spotify.errorMessage(), QString()); // intentional shutdown is normal
+  QVERIFY(bus.registerService(service));
+  QVERIFY(bluezBus.registerService(QStringLiteral("org.bluez")));
+  QTRY_VERIFY_WITH_TIMEOUT(spotify.hasTrack(), 3000);
+  QTRY_VERIFY_WITH_TIMEOUT(bluetooth.hasConnectedDevice(), 3000);
+  QTRY_COMPARE_WITH_TIMEOUT(spotify.errorMessage(), QString(), 3000);
+  QTRY_COMPARE_WITH_TIMEOUT(bluetooth.errorMessage(), QString(), 3000);
+
+  // AVRCP read failure is reported, then cleared by an observed player update.
+  objects.playerError = QStringLiteral("org.freedesktop.DBus.Error.AccessDenied");
+  const QString playerPath = QStringLiteral("/org/bluez/hci0/dev_A/player0");
+  QDBusMessage added = QDBusMessage::createSignal(
+      QStringLiteral("/"), QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+      QStringLiteral("InterfacesAdded"));
+  added << QDBusObjectPath(playerPath)
+        << QVariant::fromValue(QMap<QString, QVariantMap>{
+             {QStringLiteral("org.bluez.MediaPlayer1"),
+              {{QStringLiteral("Status"), QStringLiteral("playing")}}}});
+  QVERIFY(bluezBus.send(added));
+  QTRY_COMPARE_WITH_TIMEOUT(bluetooth.errorMessage(),
+      QStringLiteral("Permission denied — check system config"), 3000);
+  QDBusMessage changed = QDBusMessage::createSignal(
+      playerPath, QStringLiteral("org.freedesktop.DBus.Properties"),
+      QStringLiteral("PropertiesChanged"));
+  changed << QStringLiteral("org.bluez.MediaPlayer1")
+          << QVariantMap{{QStringLiteral("Position"), 15000u}} << QStringList();
+  QVERIFY(bluezBus.send(changed));
+  QTRY_COMPARE_WITH_TIMEOUT(bluetooth.position(), qint64(15000), 3000);
+  QCOMPARE(bluetooth.errorMessage(), QString());
+}
+
+void TestControllers::testDisconnectedBusErrors() {
+  const QDBusConnection bus(QStringLiteral("nonexistent-test-bus"));
+  QVERIFY(!bus.isConnected());
+  SpotifyClient spotify(bus);
+  BluetoothClient bluetooth(bus);
+  QTRY_VERIFY_WITH_TIMEOUT(!spotify.errorMessage().isEmpty(), 1000);
+  QTRY_VERIFY_WITH_TIMEOUT(!bluetooth.errorMessage().isEmpty(), 1000);
+  bluetooth.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0"),
+      QStringLiteral("org.bluez.Adapter1"), {{QStringLiteral("Powered"), true}});
+  QVERIFY(!bluetooth.errorMessage().isEmpty());
 }
 
 void TestControllers::testSpotifyFirstArtistFromMetadata() {
@@ -1829,6 +1990,66 @@ void TestControllers::testSpotifyPrivateBusMprisLifecycle() {
   bus.unregisterService(service);
 }
 
+void TestControllers::testSpotifyIgnoresStaleStateReplies() {
+  QProcess daemon;
+  daemon.start(QStringLiteral("dbus-daemon"),
+               {QStringLiteral("--session"), QStringLiteral("--nofork"),
+                QStringLiteral("--print-address=1")});
+  QVERIFY(daemon.waitForStarted());
+  QVERIFY(daemon.waitForReadyRead(5000));
+  const QString address = QString::fromUtf8(daemon.readAllStandardOutput()).trimmed();
+  const QString name = QStringLiteral("stale-mpris-%1").arg(
+      QUuid::createUuid().toString(QUuid::WithoutBraces));
+  QDBusConnection bus = QDBusConnection::connectToBus(address, name);
+  QDBusConnection server = QDBusConnection::connectToBus(address, name + QStringLiteral("-server"));
+  const auto cleanup = qScopeGuard([&]() {
+    QDBusConnection::disconnectFromBus(name);
+    QDBusConnection::disconnectFromBus(name + QStringLiteral("-server"));
+    daemon.terminate();
+    daemon.waitForFinished(3000);
+  });
+  const QString service = QStringLiteral("org.mpris.MediaPlayer2.spotifyd.instance77");
+  const QString path = QStringLiteral("/org/mpris/MediaPlayer2");
+  MockMprisPlayer player;
+  player.holdReads = true;
+  QVERIFY(server.registerService(service));
+  QVERIFY(server.registerVirtualObject(path, &player));
+  SpotifyClient spotify(bus);
+  QTRY_COMPARE_WITH_TIMEOUT(player.pendingReads.size(), 1, 3000);
+
+  QDBusMessage changed = QDBusMessage::createSignal(
+      path, QStringLiteral("org.freedesktop.DBus.Properties"),
+      QStringLiteral("PropertiesChanged"));
+  changed << QStringLiteral("org.mpris.MediaPlayer2.Player")
+          << QVariantMap{{QStringLiteral("Metadata"), player.metadata}}
+          << QStringList();
+  QVERIFY(server.send(changed));
+  QTRY_COMPARE_WITH_TIMEOUT(spotify.title(), QStringLiteral("Initial Track"), 3000);
+  QSignalSpy errors(&spotify, &SpotifyClient::errorMessageChanged);
+  QVERIFY(server.send(player.pendingReads.takeFirst().createErrorReply(
+      QStringLiteral("org.freedesktop.DBus.Error.AccessDenied"), QStringLiteral("stale failure"))));
+  // A round-trip command ensures the earlier read reply has been processed.
+  spotify.next();
+  QTRY_COMPARE_WITH_TIMEOUT(player.calls.size(), 1, 3000);
+  QCOMPARE(spotify.errorMessage(), QString());
+  QCOMPARE(errors.size(), 0);
+
+  // Start another delayed read, then lose the session before its reply arrives.
+  QVERIFY(server.unregisterService(service));
+  QTRY_VERIFY_WITH_TIMEOUT(!spotify.isAvailable(), 3000);
+  QVERIFY(server.registerService(service));
+  QTRY_COMPARE_WITH_TIMEOUT(player.pendingReads.size(), 1, 3000);
+  QVERIFY(server.unregisterService(service));
+  QTRY_VERIFY_WITH_TIMEOUT(!spotify.isAvailable(), 3000);
+  QVERIFY(server.send(player.pendingReads.takeFirst().createReply(
+      QVariantMap{{QStringLiteral("Metadata"), player.metadata}})));
+  player.holdReads = false;
+  QVERIFY(server.registerService(service));
+  QTRY_VERIFY_WITH_TIMEOUT(spotify.hasTrack(), 3000);
+  QCOMPARE(spotify.errorMessage(), QString());
+  QCOMPARE(errors.size(), 0);
+}
+
 void TestControllers::testVolumeControllerDefaults() {
   VolumeController c;
   QCOMPARE(c.volume(), 0);
@@ -1847,8 +2068,8 @@ void TestControllers::testVolumeControllerParse() {
 void TestControllers::testVolumeControllerReadsFromWpctl() {
   VolumeController c;
   c.setCommandRunnerForTest(
-      [](const QStringList &, const std::function<void(const QByteArray &)> &onFinished) {
-        onFinished("Volume: 0.65\n");
+       [](const QStringList &, const std::function<void(const QByteArray &, const QString &)> &onFinished) {
+         onFinished("Volume: 0.65\n", {});
       });
   c.pollNowForTest();
   QCOMPARE(c.volume(), 65);
@@ -1858,8 +2079,8 @@ void TestControllers::testVolumeControllerPollsExternalChanges() {
   VolumeController c;
   QByteArray current("Volume: 0.65\n");
   c.setCommandRunnerForTest(
-      [&current](const QStringList &, const std::function<void(const QByteArray &)> &onFinished) {
-        onFinished(current);
+       [&current](const QStringList &, const std::function<void(const QByteArray &, const QString &)> &onFinished) {
+         onFinished(current, {});
       });
   c.pollNowForTest();
   QCOMPARE(c.volume(), 65);
@@ -1874,9 +2095,9 @@ void TestControllers::testVolumeControllerIssuesSetVolumeCommand() {
   QList<QStringList> calls;
   c.setCommandRunnerForTest(
       [&calls](const QStringList &args,
-               const std::function<void(const QByteArray &)> &onFinished) {
+                const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args);
-        onFinished(QByteArray());
+         onFinished(QByteArray(), {});
       });
   c.setVolume(75);
   QCOMPARE(c.volume(), 75);
@@ -1889,9 +2110,9 @@ void TestControllers::testVolumeControllerClamping() {
   QList<QStringList> calls;
   c.setCommandRunnerForTest(
       [&calls](const QStringList &args,
-               const std::function<void(const QByteArray &)> &onFinished) {
+                const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args);
-        onFinished(QByteArray());
+         onFinished(QByteArray(), {});
       });
   c.setVolume(200);
   QCOMPARE(c.volume(), 150);
@@ -1904,16 +2125,16 @@ void TestControllers::testVolumeControllerClamping() {
 
 void TestControllers::testVolumeControllerNoReadBackRace() {
   VolumeController c;
-  std::function<void(const QByteArray &)> pendingReadFinish;
+  std::function<void(const QByteArray &, const QString &)> pendingReadFinish;
   QList<QStringList> calls;
   c.setCommandRunnerForTest(
       [&calls, &pendingReadFinish](const QStringList &args,
-                                   const std::function<void(const QByteArray &)> &onFinished) {
+                                    const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args);
         if (args.first() == "get-volume") {
           pendingReadFinish = onFinished; // hold the read open (in flight)
         } else {
-          onFinished(QByteArray());
+           onFinished(QByteArray(), {});
         }
       });
 
@@ -1927,8 +2148,70 @@ void TestControllers::testVolumeControllerNoReadBackRace() {
   QCOMPARE(c.volume(), 80);
 
   // The stale read completes with the *old* value; must be discarded.
-  pendingReadFinish("Volume: 0.50\n");
+  pendingReadFinish("Volume: 0.50\n", {});
   QCOMPARE(c.volume(), 80);
+}
+
+void TestControllers::testVolumeCommandErrorsAndRecovery() {
+  VolumeController c;
+  QString writeError = QStringLiteral("Permission denied");
+  QByteArray readOutput = "Volume: 0.50\n";
+  int writes = 0;
+  c.setCommandRunnerForTest(
+      [&writeError, &readOutput, &writes](const QStringList &args,
+                             const std::function<void(const QByteArray &, const QString &)> &done) {
+        if (args.first() == QStringLiteral("set-volume")) {
+          ++writes;
+          done({}, writeError);
+        } else {
+          done(readOutput, readOutput.isEmpty() ? QStringLiteral("timed out") : QString());
+        }
+      });
+  QSignalSpy errorSpy(&c, &VolumeController::errorMessageChanged);
+  c.setVolume(75);
+  QCOMPARE(c.errorMessage(), QStringLiteral("Permission denied — check system config"));
+  c.pollNowForTest();
+  QCOMPARE(c.errorMessage(), QStringLiteral("Permission denied — check system config"));
+  QCOMPARE(c.volume(), 50);
+  readOutput = "Volume: 0.75\n";
+  c.pollNowForTest();
+  QCOMPARE(c.errorMessage(), QString()); // observed recovery
+  writeError = QStringLiteral("Permission denied");
+  c.setVolume(65);
+  c.setVolume(65); // the same value must allow manual retry
+  QCOMPARE(writes, 3);
+  writeError.clear();
+  c.setVolume(65);
+  QCOMPARE(c.errorMessage(), QString());
+  readOutput.clear();
+  c.pollNowForTest();
+  QCOMPARE(c.errorMessage(), QStringLiteral("Volume read: timed out — try again"));
+  QVERIFY(errorSpy.size() >= 3);
+}
+
+void TestControllers::testPowerCommandErrorsAndRetry() {
+  PowerController c;
+  std::function<void(const QString &)> pending;
+  QStringList actions;
+  c.setCommandRunnerForTest([&](const QString &action,
+                                const std::function<void(const QString &)> &done) {
+    actions.append(action);
+    pending = done;
+  });
+  QSignalSpy successSpy(&c, &PowerController::commandSucceeded);
+  c.shutdown();
+  QVERIFY(c.busy());
+  c.reboot(); // a second request cannot overtake the pending command
+  QCOMPARE(actions, (QStringList{QStringLiteral("poweroff")}));
+  pending(QStringLiteral("AccessDenied"));
+  QVERIFY(!c.busy());
+  QCOMPARE(c.errorMessage(), QStringLiteral("Permission denied — check system config"));
+  QCOMPARE(successSpy.size(), 0);
+  c.reboot();
+  QCOMPARE(actions.last(), QStringLiteral("reboot"));
+  pending({});
+  QCOMPARE(c.errorMessage(), QString());
+  QCOMPARE(successSpy.size(), 1);
 }
 
 void TestControllers::testVolumeMuteRestoresLastLevel() {
@@ -1936,9 +2219,9 @@ void TestControllers::testVolumeMuteRestoresLastLevel() {
   QList<QStringList> calls;
   c.setCommandRunnerForTest(
       [&calls](const QStringList &args,
-               const std::function<void(const QByteArray &)> &onFinished) {
+                const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args);
-        onFinished(QByteArray());
+         onFinished(QByteArray(), {});
       });
   QSignalSpy volumeSpy(&c, &VolumeController::volumeChanged);
 
@@ -1963,9 +2246,9 @@ void TestControllers::testVolumeMuteFallsBackToTenPercent() {
   QList<QStringList> calls;
   c.setCommandRunnerForTest(
       [&calls](const QStringList &args,
-               const std::function<void(const QByteArray &)> &onFinished) {
+                const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args);
-        onFinished(QByteArray());
+         onFinished(QByteArray(), {});
       });
   QVERIFY(c.muted());
   c.setMuted(false);
@@ -1979,9 +2262,9 @@ void TestControllers::testVolumeMuteTracksSliderAndExternalChanges() {
   QByteArray current("Volume: 0.60\n");
   c.setCommandRunnerForTest(
       [&calls, &current](const QStringList &args,
-                         const std::function<void(const QByteArray &)> &onFinished) {
+                          const std::function<void(const QByteArray &, const QString &)> &onFinished) {
         calls.append(args);
-        onFinished(args.first() == QStringLiteral("get-volume") ? current : QByteArray());
+         onFinished(args.first() == QStringLiteral("get-volume") ? current : QByteArray(), {});
       });
   c.pollNowForTest();
   QCOMPARE(c.volume(), 60);
