@@ -32,6 +32,7 @@ public:
   QString lookupError;
   QString playerError;
   bool invalidLookupReply = false;
+  /// Unused path -> ObjectManager XML; describes the fixture's snapshot signature.
   QString introspect(const QString &) const override {
     return QStringLiteral("<interface name=\"org.freedesktop.DBus.ObjectManager\">"
                           "<method name=\"GetManagedObjects\">"
@@ -39,6 +40,8 @@ public:
                           "</method></interface>");
   }
 
+  /// message/connection: incoming call and replying bus. Returns handled bool.
+  /// Supplies configured BlueZ snapshots/properties or malformed/read-error fixtures.
   bool handleMessage(const QDBusMessage &message,
                       const QDBusConnection &connection) override {
     if (message.member() == QStringLiteral("GetAll")) {
@@ -67,6 +70,7 @@ public:
     QDBusArgument arg;
     arg.beginMap(QMetaType::fromType<QDBusObjectPath>(),
                  QMetaType::fromType<QMap<QString, QVariantMap>>());
+    // path/interface/props -> void; append one entry to the captured typed snapshot.
     const auto add = [&arg](const QString &path, const QString &interface,
                             const QVariantMap &props) {
       arg.beginMapEntry();
@@ -112,6 +116,7 @@ public:
                         QVariant::fromValue(QDBusObjectPath(
                             QStringLiteral("/org/mpris/MediaPlayer2/Track/1")))}};
 
+  /// Unused path -> Properties/Player XML with real method/signal signatures.
   QString introspect(const QString &) const override {
     return QStringLiteral("<interface name=\"org.freedesktop.DBus.Properties\">"
                           "<method name=\"GetAll\"><arg direction=\"in\" type=\"s\"/>"
@@ -126,6 +131,8 @@ public:
                           "<arg direction=\"in\" type=\"x\"/></method></interface>");
   }
 
+  /// message/connection: call and reply bus. Returns handled bool.
+  /// Records controls or replies/holds GetAll according to stale/error test settings.
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &connection) override {
     if (message.member() == QStringLiteral("GetAll")) {
@@ -166,6 +173,7 @@ public:
   bool activationRequested = false;
   QVariantList activationArgs;
 
+  /// Unused path -> NM/Wireless/Properties XML; the fixture enforces actual signatures.
   QString introspect(const QString &) const override {
     return QStringLiteral("<interface name=\"org.freedesktop.NetworkManager\">"
                           "<method name=\"GetDevices\"><arg direction=\"out\" type=\"ao\"/>"
@@ -189,6 +197,8 @@ public:
                           "</interface>");
   }
 
+  /// message/connection: call and reply bus. Returns true after reply/error.
+  /// Checks path/interface/typed args before recording scan/activation or returning AP data.
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &connection) override {
     const QString method = message.member();
@@ -265,74 +275,146 @@ class TestControllers : public QObject {
   Q_OBJECT
 
 private slots:
+  // Every test slot below takes no parameters and returns void; Qt assertions report
+  // outcomes. Fixture callbacks borrow this test's captured state and follow the
+  // documented D-Bus/command runner contracts, never real power/transport writes.
+  /// Verify Spotify boot-view defaults and owned source children.
   void testPlaybackControllerDefaults();
+  /// Verify retained selection on failure and no source changes from metadata/connections.
   void testPlaybackControllerBluetoothTransitions();
+  /// Check disconnected Wi-Fi property defaults.
   void testWifiControllerDefaults();
+  /// Check device-type enumeration selects Wi-Fi.
   void testWifiControllerScanFindsWifiDevice();
+  /// Check RequestScan targets the Wireless interface.
   void testWifiControllerScanIssuesRequestScanOnWireless();
+  /// Check no-adapter lookup is a visible error.
   void testWifiControllerScanNoWifiDevice();
+  /// Check AP insertion/removal updates the deduplicated model.
   void testWifiControllerAccessPointAddedRemoved();
+  /// Legacy name: verify AddAndActivateConnection profile/args, not obsolete AddAndConnect.
   void testWifiControllerConnectIssuesAddAndConnect();
+  /// Check open networks omit WPA security settings.
   void testWifiControllerConnectOpenNetworkNoSecurity();
+  /// Check disconnected initial/status observations.
   void testWifiControllerDefaultTracksDisconnected();
+  /// Check active AP updates actual SSID, strength and connected state.
   void testWifiControllerTracksActiveConnectionState();
+  /// Check failed activation call surfaces an error.
   void testWifiControllerSurfacesConnectError();
+  /// Check SSID decoding, AP flags/strength and profile helpers.
   void testWifiControllerStaticHelpers();
+  /// Check already-known AP inventory is loaded before fresh scan signals.
   void testWifiControllerListsExistingAccessPoints();
+  /// Check scan permission/operation failures are visible.
   void testWifiControllerScanError();
+  /// Check observed activation, rather than acknowledgement, determines success.
   void testWifiControllerActivationResult();
+  /// Exercise real typed NM bus calls, matching activation and daemon recovery.
   void testWifiPrivateBusScanAndActivation();
+  /// Run a hung pw-dump fixture to verify timeout and repaired-runner recovery; restore PATH.
   void testBluetoothMuteProcessTimeout();
+  /// Check Bluetooth publication, takeover and mute defaults.
   void testBluetoothClientDefaults();
+  /// Check device identity/connection changes select the active phone correctly.
   void testBluetoothTracksConnectedDevices();
+  /// Check second connection opens arbitration and disconnect removes it.
   void testBluetoothTakeoverDetection();
+  /// Check current/incoming names and observed disconnect requirement.
   void testBluetoothTakeoverExposesNames();
+  /// Check live contender rename reaches the dialog model.
   void testBluetoothTakeoverIncomingNameLiveUpdate();
+  /// Check device removal clears stale player state.
   void testBluetoothDeviceRemoveClearsPlayerState();
+  /// Check power/discovery/pairability observation.
   void testBluetoothAdapterStateObserved();
+  /// Verify typed Discoverable property write to the correct adapter.
   void testBluetoothEnsureDiscoverableCallsSet();
+  /// Verify failed discovery write and explicit retry/error clearing.
   void testBluetoothDiscoverabilityErrorAndRecovery();
+  /// Verify AVRCP control failures and recovery.
   void testBluetoothTransportErrorAndRecovery();
+  /// Verify KeepCurrent disconnects newcomer only after observed resolution.
   void testBluetoothResolveTakeoverKeepDisconnectsNew();
+  /// Verify SwitchToNew disconnects current phone and retargets on observation.
   void testBluetoothResolveTakeoverSwitchDisconnectsOld();
+  /// Verify a failed disconnect retains pending choice and supports manual retry.
   void testBluetoothTakeoverDisconnectFailureAndRetry();
+  /// Verify disappearing newcomer cannot leave a stale pending request.
   void testBluetoothTakeoverIncomingDisappearsDuringDisconnect();
+  /// Verify bounded disconnect failure does not silently complete the choice.
   void testBluetoothTakeoverDisconnectTimeout();
+  /// Check published AVRCP metadata/status/time fields and units.
   void testBluetoothAvrcpStateFromPlayer();
+  /// Check status-only players do not fabricate Track/Position support.
   void testBluetoothAvrcpOnlyStatusNoTrack();
+  /// Check transport commands target the active player's object path.
   void testBluetoothTransportTargetsActiveDevice();
+  /// Check address-based PipeWire lookup and per-node mute arguments.
   void testBluetoothMuteDiscoversNodeAndMutes();
+  /// Check active-node unmute uses set-mute zero.
   void testBluetoothUnmuteIssuesSetMuteZero();
+  /// Check mute intent dispatches for every connected address.
   void testBluetoothMuteCoversAllConnectedDevices();
+  /// Check dump/mute command failures surface.
   void testBluetoothMuteCommandFailure();
+  /// Check profile-independent node matching and invalid/missing dump cases.
   void testBluetoothNodeIdFromPwDump();
+  /// Check retargeting resets unsupported/stale AVRCP fields.
   void testBluetoothAvrcpResetsOnDeviceChange();
+  /// Check takeover winner's metadata/player becomes active.
   void testBluetoothRetargetsPlayerAfterTakeover();
+  /// Check unnamed connected device is detected with generic display fallback.
   void testBluetoothDeviceWithoutNameIsDetected();
+  /// Check players arriving before their Device1 are deferred then attached.
   void testBluetoothPlayerAddedBeforeDevice();
+  /// Exercise real ObjectManager/property signals and BlueZ daemon recovery.
   void testBluetoothPrivateBusObjectManagerAndProperties();
+  /// Register Qt Test error-type data rows (void return, no table value returned).
   void testBackgroundDbusReadErrors_data();
+  /// Consume error rows and check classified read failures/recovery.
   void testBackgroundDbusReadErrors();
+  /// Check disconnected buses are reported rather than ignored.
   void testDisconnectedBusErrors();
+  /// Check Spotify defaults without a session.
   void testSpotifyClientDefaults();
+  /// Check display/first artist handling and metadata representations.
   void testSpotifyFirstArtistFromMetadata();
+  /// Exercise dynamic MPRIS discovery, metadata, controls and session loss on real private bus.
   void testSpotifyPrivateBusMprisLifecycle();
+  /// Hold/replay stale snapshots around live updates and session disappearance.
   void testSpotifyIgnoresStaleStateReplies();
+  /// Check cached zero-volume/mute/error defaults.
   void testVolumeControllerDefaults();
+  /// Check ratio parsing, rounding/clamping and invalid text.
   void testVolumeControllerParse();
+  /// Check wpctl read updates cached percentage.
   void testVolumeControllerReadsFromWpctl();
+  /// Check polling tracks external volume changes.
   void testVolumeControllerPollsExternalChanges();
+  /// Check shared default-sink set-volume arguments.
   void testVolumeControllerIssuesSetVolumeCommand();
+  /// Check lower/upper volume limits.
   void testVolumeControllerClamping();
+  /// Check pre-write readback cannot overwrite a newer write.
   void testVolumeControllerNoReadBackRace();
+  /// Check read/write/invalid-output errors and manual/observed recovery.
   void testVolumeCommandErrorsAndRecovery();
+  /// Check CLI authentication error, busy guard and successful retry (no real power command).
   void testPowerCommandErrorsAndRetry();
+  /// Check unmute restores the last nonzero percentage.
   void testVolumeMuteRestoresLastLevel();
+  /// Check unmute without history falls back to ten percent.
   void testVolumeMuteFallsBackToTenPercent();
+  /// Check slider/external volume above zero synchronizes mute and restore history.
   void testVolumeMuteTracksSliderAndExternalChanges();
+  /// Check configured artwork directory is created.
   void testArtCacheDirCreation();
+  /// Check HTTP download, URL reuse, waiter notification and clear behavior.
   void testArtCacheDownloadReuseAndClear();
+  /// Check bounded cache pruning removes oldest covers.
   void testArtCachePrunesOldCovers();
+  /// Check HTTP/invalid-image failures return no cached art.
   void testArtCacheRejectsFailuresAndInvalidImages();
 };
 

@@ -6,11 +6,13 @@
 #include <memory>
 
 PowerController::PowerController(QObject *parent) : QObject(parent) {
+  // Runner: systemctl action and done(error) -> void; empty error acknowledges process exit.
   m_runner = [this](const QString &action, const std::function<void(const QString &)> &done) {
     auto *proc = new QProcess(this);
     auto completed = std::make_shared<bool>(false);
     auto *timeout = new QTimer(proc);
     timeout->setSingleShot(true);
+    // Callback: no args/return; kill and report once through shared completion guard.
     connect(timeout, &QTimer::timeout, proc, [proc, done, completed]() {
       if (*completed) {
         return;
@@ -21,6 +23,7 @@ PowerController::PowerController(QObject *parent) : QObject(parent) {
       proc->deleteLater();
     });
     connect(proc, &QProcess::errorOccurred, proc,
+            // Callback: QProcess error -> void; resolve FailedToStart once.
             [proc, done, completed](QProcess::ProcessError error) {
               if (error != QProcess::FailedToStart || *completed) {
                 return;
@@ -30,6 +33,7 @@ PowerController::PowerController(QObject *parent) : QObject(parent) {
               proc->deleteLater();
             });
     connect(proc, &QProcess::finished, proc,
+            // Callback: exit code/status -> void; translate stderr/exit into completion.
             [proc, done, completed](int exitCode, QProcess::ExitStatus status) {
               if (*completed) {
                 return;
@@ -70,6 +74,8 @@ void PowerController::run(const QString &action) {
   setErrorMessage({});
   m_busy = true;
   emit busyChanged();
+  // Callback: raw error text -> void; clear busy and publish failure/acknowledgement.
+  // A successful CLI exit does not prove that physical reboot/poweroff has completed.
   m_runner(action, [this, action](const QString &error) {
     m_busy = false;
     emit busyChanged();

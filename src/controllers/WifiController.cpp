@@ -46,6 +46,7 @@ constexpr int kConnectionTimeoutMs = 30000;
 
 const quint32 kApPrivacyFlag = 0x00000001;
 
+/// @param reply Typed list or D-Bus array. @return Paths, empty for unsupported payload.
 QList<QDBusObjectPath> objectPaths(const QVariant &reply) {
   if (reply.canConvert<QList<QDBusObjectPath>>()) {
     return reply.value<QList<QDBusObjectPath>>();
@@ -64,6 +65,7 @@ QList<QDBusObjectPath> objectPaths(const QVariant &reply) {
   return paths;
 }
 
+/// @param reply Map/argument payload. @return Dictionary with wrapped values unwrapped once.
 QVariantMap properties(const QVariant &reply) {
   QVariantMap result;
   if (reply.canConvert<QDBusArgument>()) {
@@ -88,9 +90,12 @@ WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
   qDBusRegisterMetaType<SettingsMap>();
   m_connectTimer.setSingleShot(true);
   m_connectTimer.setInterval(kConnectionTimeoutMs);
+  // Callback: no parameters/return; fail the selected-network activation deadline.
   QObject::connect(&m_connectTimer, &QTimer::timeout, this, [this]() {
     failConnection(QStringLiteral("Wi-Fi connection timed out"));
   });
+  // Dispatcher: service/path/interface/method/typed args plus completion -> void.
+  // Completion returns first unwrapped value/raw error, not proof of network activation.
   m_dbusCall = [this](const QString &service, const QString &objectPath,
                   const QString &interface, const QString &method,
                   const QVariantList &args,
@@ -102,6 +107,7 @@ WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
     QDBusPendingCall pending = m_bus.asyncCall(msg, 5000);
     auto *watcher = new QDBusPendingCallWatcher(pending, this);
     QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher,
+                      // Callback: no args/return; extract result and release owned watcher.
                       [watcher, onFinished]() {
                        QString error;
                        QVariant reply;
@@ -126,6 +132,7 @@ WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
   auto *serviceWatcher = new QDBusServiceWatcher(kNetworkManagerService, m_bus,
       QDBusServiceWatcher::WatchForOwnerChange, this);
   QObject::connect(serviceWatcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+      // Callback: unused name/old owner, new owner -> void; invalidate stale attempts/tree.
       [this](const QString &, const QString &, const QString &owner) {
     ++m_scanGeneration;
     ++m_inventoryGeneration;
@@ -149,6 +156,7 @@ WifiController::WifiController(const QDBusConnection &bus, QObject *parent)
   });
 
   // Find the Wi-Fi device at startup, even when Ethernet owns the default route.
+  // Callback: no args/return; initial discovery only if no device was already selected.
   QTimer::singleShot(0, this, [this]() {
     if (m_wifiDevicePath.isEmpty()) {
       discoverWifiDevice();
@@ -248,6 +256,7 @@ void WifiController::discoverWifiDevice() {
   QPointer<WifiController> self(this);
   m_dbusCall(kNetworkManagerService, kNetworkManagerPath,
               kNetworkManagerInterface, QStringLiteral("GetDevices"),
+              // Callback: device-list/raw error -> void; ignore obsolete scan generations.
               QVariantList(), [self, generation](const QVariant &reply,
                                                   const QString &error) {
                 if (!self || generation != self->m_scanGeneration) {
@@ -273,6 +282,7 @@ void WifiController::findWifiDevice(const QList<QDBusObjectPath> &devices,
   m_dbusCall(kNetworkManagerService, devicePath, kPropertiesInterface,
               QStringLiteral("Get"),
               QVariantList{kDeviceInterface, kDeviceTypeProp},
+              // Callback: device type/raw error -> void; select Wi-Fi or inspect next candidate.
               [self, devices, index, devicePath, generation](const QVariant &reply,
                                                               const QString &error) {
                 if (!self || generation != self->m_scanGeneration) {
@@ -360,6 +370,7 @@ void WifiController::requestScan(const QString &devicePath) {
   QPointer<WifiController> self(this);
   m_dbusCall(kNetworkManagerService, devicePath, kWirelessInterface,
               QStringLiteral("RequestScan"), QVariantList{QVariantMap()},
+              // Callback: unused reply/raw error -> void; only current scan errors survive.
               [self, generation](const QVariant &, const QString &error) {
                 if (self && generation == self->m_scanGeneration && !error.isEmpty()) {
                   self->setError(dbusErrorText(QStringLiteral("Wi-Fi scan"), error));
@@ -373,6 +384,7 @@ void WifiController::refreshAccessPoints(const QString &devicePath,
   QPointer<WifiController> self(this);
   m_dbusCall(kNetworkManagerService, devicePath, kWirelessInterface,
               QStringLiteral("GetAllAccessPoints"), QVariantList(),
+              // Callback: AP paths/raw error -> void; check scan/inventory/path before reconciling.
               [self, devicePath, generation, inventory](const QVariant &reply,
                                               const QString &error) {
                 if (!self || generation != self->m_scanGeneration ||
@@ -448,6 +460,7 @@ void WifiController::connect(const QString &ssid, const QString &password) {
                           QVariant::fromValue(QDBusObjectPath(m_wifiDevicePath)),
                           QVariant::fromValue(QDBusObjectPath(
                               apPath.isEmpty() ? QStringLiteral("/") : apPath))},
+             // Callback: unused first activation path/raw error -> void; no success inference.
              [self, ssid, attempt](const QVariant &, const QString &error) {
                if (self && self->m_connectGeneration == attempt &&
                    self->m_connectRequestedSsid == ssid &&
@@ -477,6 +490,7 @@ void WifiController::disconnect() {
   QPointer<WifiController> self(this);
   m_dbusCall(kNetworkManagerService, m_wifiDevicePath, kDeviceInterface,
              QStringLiteral("Disconnect"), QVariantList(),
+             // Callback: unused reply/raw error -> void; publish disconnect failure.
              [self](const QVariant &, const QString &error) {
                if (self && !error.isEmpty()) {
                  self->setError(dbusErrorText(QStringLiteral("Wi-Fi disconnect"), error));
@@ -522,6 +536,7 @@ void WifiController::refreshActiveConnection() {
   m_dbusCall(kNetworkManagerService, m_wifiDevicePath, kPropertiesInterface,
              QStringLiteral("Get"),
              QVariantList{kDeviceInterface, QStringLiteral("State")},
+             // Callback: numeric device state/raw error -> void; apply only current status token.
              [self, generation](const QVariant &reply, const QString &error) {
                if (!self || generation != self->m_stateGeneration) {
                  return;
@@ -556,6 +571,7 @@ void WifiController::onWifiDeviceStateChanged(uint newState, uint, uint reason) 
   m_dbusCall(kNetworkManagerService, m_wifiDevicePath, kPropertiesInterface,
              QStringLiteral("Get"),
              QVariantList{kWirelessInterface, kActiveAccessPointProp},
+             // Callback: active AP path/raw error -> void; absent path clears connection state.
              [self, generation](const QVariant &reply, const QString &error) {
                if (!self || generation != self->m_stateGeneration) {
                  return;
@@ -578,6 +594,7 @@ void WifiController::fetchAccessPointState(const QString &apPath) {
   QPointer<WifiController> self(this);
   m_dbusCall(kNetworkManagerService, apPath, kPropertiesInterface,
              QStringLiteral("GetAll"), QVariantList{kAccessPointInterface},
+             // Callback: active AP props/raw error -> void; match real SSID to selected target.
              [self, generation](const QVariant &reply, const QString &error) {
                if (!self || generation != self->m_stateGeneration) {
                  return;
@@ -680,6 +697,7 @@ void WifiController::fetchAccessPoint(const QString &apPath, quint64 generation)
   QPointer<WifiController> self(this);
   m_dbusCall(kNetworkManagerService, apPath, kPropertiesInterface,
               QStringLiteral("GetAll"), QVariantList{kAccessPointInterface},
+              // Callback: AP props/raw error -> void; skip removed APs and old scan replies.
               [self, apPath, generation](const QVariant &reply,
                                           const QString &error) {
                 if (!self || generation != self->m_scanGeneration ||

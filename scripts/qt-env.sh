@@ -3,6 +3,9 @@
 # profile on QML2_IMPORT_PATH can shadow the devShell's Qt and hide modules like
 # QtQuick.VirtualKeyboard. Safe to source multiple times; no-op if the devShell
 # prefix list is not present.
+# Sourced entry point: QT_ADDITIONAL_PACKAGES_PREFIX_PATH is the optional input, no args.
+# No function return API; updates QML2_IMPORT_PATH/QT_PLUGIN_PATH for existing directories
+# and leaves shell variables/nounset in the caller. Absent prefixes take a no-op branch.
 set -u
 
 if [[ -n "${QT_ADDITIONAL_PACKAGES_PREFIX_PATH:-}" ]]; then

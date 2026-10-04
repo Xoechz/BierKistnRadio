@@ -5,14 +5,19 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
+  # Parameters: current flake self and nixpkgs input. Returns package/devShell attributes;
+  # evaluation declares builds and does not launch the application or configure NixOS.
   outputs = { self, nixpkgs }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
 
+      # f: native package-set callback. Returns attributes keyed by supported system.
       forAllSystems = f:
         nixpkgs.lib.genAttrs supportedSystems
+          # system: platform name. Returns f's value for that native package set.
           (system: f nixpkgs.legacyPackages.${system});
 
+      # kdePackages: Qt/KDE package set. Returns the app's Qt dependency list.
       qtInputs = kdePackages: with kdePackages; [
         qtbase
         qtdeclarative
@@ -22,6 +27,7 @@
         qtimageformats
       ];
 
+      # pkgs: native platform packages. Returns wrapped Release app derivation without tests.
       mkDerivation = pkgs:
         pkgs.stdenv.mkDerivation {
           pname = "bierkistn-radio";
@@ -46,6 +52,7 @@
         };
     in
     {
+      # Callback pkgs: native packages. Returns default dev shell, with x86-only LLVM extras.
       devShells = forAllSystems (pkgs:
         let
           isX86 = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
@@ -74,6 +81,7 @@
           };
         });
 
+      # Callback pkgs: native packages. Returns app/default aliases; ARM uses builder/emulation.
       packages = forAllSystems (pkgs: {
         bierkistnRadio = mkDerivation pkgs;
         default = mkDerivation pkgs;

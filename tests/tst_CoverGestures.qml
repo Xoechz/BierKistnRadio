@@ -19,6 +19,8 @@ TestCase {
         id: fakeArtCache
         signal artCached(string key, var cachedUrl)
         property int requests: 0
+        // url/key: unused source/correlation fixture inputs. Returns empty pending result;
+        // counts requests without accessing the network.
         function cacheArt(url, key) {
             requests++
             return ""
@@ -43,9 +45,13 @@ TestCase {
         property int pauses: 0
         property int nexts: 0
         property int previouses: 0
+        // No arguments/return values; these fixture methods count routed actions only.
         function play() { plays++ }
+        // Count Pause, returning undefined.
         function pause() { pauses++ }
+        // Count Next, returning undefined.
         function next() { nexts++ }
+        // Count Previous, returning undefined.
         function previous() { previouses++ }
     }
 
@@ -63,6 +69,7 @@ TestCase {
         }
     }
 
+    // No arguments; returns undefined. Reset source/metadata and action counters.
     function init() {
         facade.playbackState = PlaybackController.SpotifyWaiting
         bluetooth.statusPublished = false
@@ -76,18 +83,22 @@ TestCase {
         facade.previouses = 0
     }
 
+    // No arguments; returns asserted coverGesture QObject for pointer-event tests.
     function cover() {
         var area = findChild(center, "coverGesture")
         verify(area !== null)
         return area
     }
 
+    // area: target; fromX/toX/toY: pixel coordinates (start y=180). Returns undefined.
+    // Simulate press/move/release without touching production transport.
     function swipe(area, fromX, toX, toY) {
         mousePress(area, fromX, 180)
         mouseMove(area, toX, toY)
         mouseRelease(area, toX, toY)
     }
 
+    // No arguments; returns undefined. Assert taps/swipes and no double or vertical action.
     function test_spotifyGestures() {
         facade.playbackState = PlaybackController.SpotifyActive
         var area = cover()
@@ -110,6 +121,7 @@ TestCase {
         compare(facade.pauses, 1)
     }
 
+    // No arguments; returns undefined. Assert BT Status/source gates and routed gesture counts.
     function test_bluetoothAvailability() {
         var area = cover()
         facade.playbackState = PlaybackController.BluetoothActive
@@ -131,6 +143,7 @@ TestCase {
         compare(area.enabled, false)
     }
 
+    // No arguments; returns undefined. Check both-theme SVG/touch geometry and button routing.
     function test_transportIconsAtPanelSize() {
         facade.playbackState = PlaybackController.SpotifyActive
         var previous = findChild(center, "previousButton")
@@ -168,6 +181,7 @@ TestCase {
         compare(facade.nexts, 1)
     }
 
+    // No arguments; returns undefined. Inject stale/current/failure art keys and assert fallback.
     function test_artDoesNotReappearAfterTrackChanges() {
         facade.playbackState = PlaybackController.SpotifyActive
         spotify.artUrl = "https://example.org/a.jpg"

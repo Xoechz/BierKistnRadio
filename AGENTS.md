@@ -2,6 +2,8 @@
 
 Working instructions for any agent (human or AI) touching this repository. For domain terminology, see [CONTEXT.md](./CONTEXT.md). For architectural decisions and their rationale, see [docs/adr/](./docs/adr/).
 
+For manual code review, see [docs/FUNCTION_REFERENCE.md](./docs/FUNCTION_REFERENCE.md) and [docs/TEST_FUNCTION_REFERENCE.md](./docs/TEST_FUNCTION_REFERENCE.md). Keep function purpose, parameters, return values, and asynchronous result contracts aligned with source changes. Hardware acceptance is documented separately in [MANUAL_TEST_PLAN.md](./MANUAL_TEST_PLAN.md).
+
 ---
 
 ## 1. Scope & Repository Boundary

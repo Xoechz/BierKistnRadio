@@ -13,6 +13,7 @@ Rectangle {
     readonly property string requestedArtUrl: root.playbackState === PlaybackController.SpotifyActive
         ? root.playback.spotify.artUrl : ""
 
+    // Handler: no arguments/return; clear stale art and request URL-correlated caching.
     onRequestedArtUrlChanged: {
         root.cachedArtUrl = ""
         if (root.requestedArtUrl !== "") {
@@ -23,6 +24,8 @@ Rectangle {
 
     Connections {
         target: root.artCache
+        // key: caller correlation URL; cachedUrl: local URL or empty failure.
+        // Returns undefined; obsolete artwork completions cannot replace current art.
         function onArtCached(key, cachedUrl) {
             if (key === root.requestedArtUrl) {
                 root.cachedArtUrl = cachedUrl.toString()
@@ -66,17 +69,22 @@ Rectangle {
     property double spAnchorTime: Date.now()
 
     property double backendSpPos: root.playback.spotify.position
+    // Handler: no arguments/return; a real position update supersedes interpolation.
     onBackendSpPosChanged: root.reanchorSp()
 
     property bool backendSpPlaying: root.playback.spotify.isSpotifyPlaying
+    // Handler: no arguments/return; play/pause changes reanchor elapsed time.
     onBackendSpPlayingChanged: root.reanchorSp()
 
+    // No arguments; returns undefined. Save backend milliseconds and wall-clock anchor.
     function reanchorSp() {
         root.spAnchorMs = root.playback.spotify.position
         root.spAnchorTime = Date.now()
         root.recomputeSp()
     }
 
+    // No arguments; returns undefined. Extrapolate while playing, cap to known duration;
+    // paused/inactive display uses the last backend position rather than advancing it.
     function recomputeSp() {
         if (root.showSpotifyProgress && root.playback.spotify.isSpotifyPlaying) {
             var est = root.spAnchorMs + (Date.now() - root.spAnchorTime)
@@ -98,9 +106,11 @@ Rectangle {
         running: root.showSpotifyProgress
                   && root.playback.spotify.isSpotifyPlaying
                  && !scrubSlider.pressed
+        // Handler: no arguments/return; update smooth position only while not scrubbing.
         onTriggered: root.recomputeSp()
     }
 
+    // Handler: no arguments/return; initialize the interpolation anchor.
     Component.onCompleted: root.reanchorSp()
 
     readonly property double currentMs:
@@ -111,6 +121,7 @@ Rectangle {
         root.showSpotifyProgress ? root.playback.spotify.duration
                                   : root.playback.bluetooth.duration
 
+    // ms: finite numeric milliseconds. Returns nonnegative minutes:ss (minutes may exceed 59).
     function formatTime(ms) {
         if (ms < 0) {
             ms = 0
@@ -121,6 +132,8 @@ Rectangle {
         return minutes + ":" + (seconds < 10 ? "0" : "") + seconds
     }
 
+    // No arguments; returns undefined. Toggle only if this source publishes transport;
+    // the facade additionally checks actual readiness before issuing commands.
     function togglePlayPause() {
         if (!root.showTransport) {
             return
@@ -154,6 +167,7 @@ Rectangle {
                 : "qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg"
             fillMode: Image.PreserveAspectFit
             asynchronous: true
+            // Handler: no arguments/return; failed cached image falls back to bundled art.
             onStatusChanged: {
                 if (status === Image.Error && root.cachedArtUrl !== "") {
                     root.cachedArtUrl = ""
@@ -172,10 +186,13 @@ Rectangle {
                 property real startX: 0
                 property real startY: 0
 
+                // mouse: area-relative event; returns undefined. Remember gesture origin.
                 onPressed: mouse => {
                     startX = mouse.x
                     startY = mouse.y
                 }
+                // mouse: release event; returns undefined. Choose one in-bounds swipe/tap
+                // action; horizontal distance/dominance avoids a swipe also toggling playback.
                 onReleased: mouse => {
                     if (!root.showTransport || mouse.x < 0 || mouse.x > width
                             || mouse.y < 0 || mouse.y > height) {
@@ -223,6 +240,7 @@ Rectangle {
                 value: root.spPosMs / 1000
                 // While pressed: follow the thumb visually/label-wise only, do
                 // not spam seeks. Commit ONE seek when the drag ends.
+                // Handler: no arguments/return; preview thumb position, then seek once on release.
                 onPressedChanged:
                     if (scrubSlider.pressed) {
                         root.spAnchorMs = scrubSlider.value * 1000
@@ -233,6 +251,7 @@ Rectangle {
                         root.spAnchorTime = Date.now()
                         root.playback.seek(root.spPosMs)
                     }
+                // Handler: no arguments/return; slider seconds -> displayed milliseconds, no seek.
                 onMoved: {
                     root.spPosMs = scrubSlider.value * 1000
                     root.spAnchorMs = root.spPosMs
@@ -281,6 +300,7 @@ Rectangle {
                 icon.width: 28
                 icon.height: 28
                 Accessible.name: "Previous"
+                // Handler: no arguments/return; route Previous through the facade.
                 onClicked: root.playback.previous()
             }
             Button {
@@ -296,6 +316,7 @@ Rectangle {
                 icon.height: 28
                 Accessible.name: root.isPlaying ? "Pause" : "Play"
                 highlighted: true
+                // Handler: no arguments/return; route explicit play/pause toggle.
                 onClicked: root.togglePlayPause()
             }
             Button {
@@ -308,6 +329,7 @@ Rectangle {
                 icon.width: 28
                 icon.height: 28
                 Accessible.name: "Next"
+                // Handler: no arguments/return; route Next through the facade.
                 onClicked: root.playback.next()
             }
         }

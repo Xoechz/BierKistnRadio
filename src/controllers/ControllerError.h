@@ -2,6 +2,9 @@
 
 #include <QString>
 
+/// Classify raw backend diagnostics without side effects (case-insensitive matching).
+/// @param operation Display action label. @param error Raw D-Bus/CLI failure text.
+/// @return Permission/unavailable/timeout/failure text; permission omits action prefix.
 inline QString controllerErrorText(const QString &operation, const QString &error) {
   if (error.contains(QStringLiteral("AccessDenied"), Qt::CaseInsensitive) ||
       error.contains(QStringLiteral("NotAuthorized"), Qt::CaseInsensitive) ||

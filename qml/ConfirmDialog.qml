@@ -66,6 +66,7 @@ Dialog {
                 flat: true
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; cancel without issuing a power operation.
                 onClicked: root.close()
             }
             Button {
@@ -74,6 +75,7 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
                 Material.background: Theme.errorColor
+                // Handler: no arguments/return; issue confirmed action and wait for CLI outcome.
                 onClicked: {
                     if (root.action === "shutdown") {
                         PowerController.shutdown()
@@ -85,6 +87,8 @@ Dialog {
         }
     }
 
+    // act: shutdown or reboot (other values use reboot branch). Returns undefined.
+    // Clear old failure, reset countdown and open before issuing any command.
     function openFor(act) {
         PowerController.clearError()
         root.action = act
@@ -97,6 +101,7 @@ Dialog {
         interval: 1000
         repeat: true
         running: root.visible && !PowerController.busy && PowerController.errorMessage === ""
+        // Handler: no arguments/return; cancel at zero while neither busy nor failed.
         onTriggered: {
             root.countdown -= 1
             if (root.countdown <= 0) {
@@ -107,6 +112,7 @@ Dialog {
 
     Connections {
         target: PowerController
+        // No arguments; returns undefined. Successful CLI acknowledgement closes the dialog.
         function onCommandSucceeded() { root.close() }
     }
 }

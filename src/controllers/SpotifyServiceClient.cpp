@@ -10,9 +10,11 @@ namespace {
 const QString service = QStringLiteral("org.freedesktop.systemd1");
 const QString managerPath = QStringLiteral("/org/freedesktop/systemd1");
 const QString managerInterface = QStringLiteral("org.freedesktop.systemd1.Manager");
+/// @param method Manager method. @return Unsubmitted user-systemd message without args.
 QDBusMessage managerCall(const QString &method) {
   return QDBusMessage::createMethodCall(service, managerPath, managerInterface, method);
 }
+/// @param watcher Failed pending call. @return Raw error name plus diagnostic message.
 QString replyError(const QDBusPendingCallWatcher *watcher) {
   return watcher->error().name() + QStringLiteral(": ") + watcher->error().message();
 }
@@ -24,6 +26,7 @@ SpotifyServiceClient::SpotifyServiceClient(const QDBusConnection &bus, QObject *
   connect(&m_poll, &QTimer::timeout, this, &SpotifyServiceClient::refresh);
   auto *watcher = new QDBusServiceWatcher(service, bus,
       QDBusServiceWatcher::WatchForOwnerChange, this);
+  // Callback: unused name/old/new owners; no return. Forget old manager state and reread.
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
           [this](const QString &, const QString &, const QString &) {
     ++m_generation;
@@ -50,6 +53,7 @@ void SpotifyServiceClient::refresh() {
   auto call = managerCall(QStringLiteral("LoadUnit"));
   call << QStringLiteral("spotifyd.service");
   auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(call, 5000), this);
+  // Callback: no parameters/return; validate captured generation and LoadUnit object path.
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, generation]() {
     watcher->deleteLater();
@@ -74,6 +78,7 @@ void SpotifyServiceClient::readState(quint64 generation) {
       QStringLiteral("org.freedesktop.DBus.Properties"), QStringLiteral("GetAll"));
   call << QStringLiteral("org.freedesktop.systemd1.Unit");
   auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(call, 5000), this);
+  // Callback: no parameters/return; decode current Unit state, or publish read failure.
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, generation]() {
     watcher->deleteLater();
@@ -122,6 +127,8 @@ void SpotifyServiceClient::requestRunning(bool running,
   auto call = managerCall(running ? QStringLiteral("StartUnit") : QStringLiteral("StopUnit"));
   call << QStringLiteral("spotifyd.service") << QStringLiteral("replace");
   auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(call, 5000), this);
+  // Callback: no parameters/return; captured finished receives acknowledgement/error,
+  // then fresh state is requested. A returned job path is not completion of the job.
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, running, finished]() {
     watcher->deleteLater();

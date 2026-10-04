@@ -21,6 +21,7 @@ constexpr qint64 kMaxDownloadBytes = 10LL * 1024 * 1024;
 const QStringList kImageFilters{QStringLiteral("*.jpg"), QStringLiteral("*.png"),
                                 QStringLiteral("*.webp")};
 
+/// @param url Encoded source identity. @return Hex SHA-256 basename, independent of UI key.
 QString fileId(const QUrl &url) {
   return QString::fromLatin1(QCryptographicHash::hash(url.toEncoded(),
                                                       QCryptographicHash::Sha256)
@@ -77,12 +78,15 @@ QUrl ArtCache::cacheArt(const QUrl &artUrl, const QString &key) {
   m_waiters.insert(id, {key});
   const quint64 generation = m_generation;
   auto bytes = std::make_shared<QByteArray>();
+  // Callback: no parameters/return; accumulate captured reply bytes, abort over 10 MiB.
   connect(reply, &QIODevice::readyRead, this, [reply, bytes]() {
     bytes->append(reply->readAll());
     if (bytes->size() > kMaxDownloadBytes) {
       reply->abort();
     }
   });
+  // Callback: no parameters/return; validate/store image and notify queued keys.
+  // Captured generation prevents a cleared cache from publishing obsolete waiters.
   connect(reply, &QNetworkReply::finished, this,
           [this, reply, id, generation, bytes]() {
             reply->deleteLater();

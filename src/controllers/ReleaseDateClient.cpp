@@ -18,6 +18,7 @@ const QString kNoConnection =
     QStringLiteral("No Connection to Musicbrainz for release dates");
 constexpr qsizetype kMaxResponseBytes = 1024 * 1024;
 
+/// @param text Literal title/artist. @return Text with Lucene metacharacters escaped.
 QString escapeLucene(QString text) {
   // Quotes, backslashes and Lucene operators in titles must be literal.
   const QString special = QStringLiteral("+-!(){}[]^\"~*?:\\/|&");
@@ -31,6 +32,8 @@ QString escapeLucene(QString text) {
   return escaped;
 }
 
+/// @param text Candidate YYYY, YYYY-MM or YYYY-MM-DD.
+/// @return Original partial/full date if calendar-valid, otherwise empty.
 QString validDate(const QString &text) {
   static const QRegularExpression pattern(
       QStringLiteral(R"(^\d{4}(?:-\d{2}(?:-\d{2})?)?$)"));
@@ -42,6 +45,8 @@ QString validDate(const QString &text) {
   return QDate::fromString(full, Qt::ISODate).isValid() ? text : QString();
 }
 
+/// @param body Recording-search JSON bytes. @return Date or unknown/no-connection sentinel.
+/// Requires exactly one recording; malformed JSON is a connection/response failure.
 QString parseDate(const QByteArray &body) {
   QJsonParseError error;
   const QJsonDocument json = QJsonDocument::fromJson(body, &error);
@@ -148,12 +153,15 @@ void ReleaseDateClient::dispatch() {
   m_lastRequest.start();
   QNetworkReply *reply = m_manager->get(request);
   auto body = std::make_shared<QByteArray>();
+  // Callback: no parameters/return; collect captured bytes and abort over 1 MiB.
   connect(reply, &QIODevice::readyRead, this, [reply, body]() {
     body->append(reply->readAll());
     if (body->size() > kMaxResponseBytes) {
       reply->abort();
     }
   });
+  // Callback: no parameters/return; cache parsed non-connection results.
+  // Captured track key may warm cache after a switch but cannot replace current display.
   connect(reply, &QNetworkReply::finished, this, [this, reply, key, body]() {
     reply->deleteLater();
     body->append(reply->readAll());

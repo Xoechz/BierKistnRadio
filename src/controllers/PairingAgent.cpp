@@ -8,6 +8,7 @@
 
 namespace {
 const QString agentPath = QStringLiteral("/org/bierkistn/PairingAgent");
+/// @param method AgentManager method. @return Unsubmitted call with agent path appended.
 QDBusMessage managerCall(const QString &method) {
   auto call = QDBusMessage::createMethodCall(
       QStringLiteral("org.bluez"), QStringLiteral("/org/bluez"),
@@ -25,9 +26,11 @@ PairingAgent::PairingAgent(const QDBusConnection &bus, QObject *parent)
   m_deadline.setTimerType(Qt::PreciseTimer);
   m_deadline.setInterval(30000);
   m_countdown.setInterval(1000);
+  // Callback: no parameters/return; reject an unanswered current confirmation.
   connect(&m_deadline, &QTimer::timeout, this, [this]() {
     finish(false, QStringLiteral("Pairing confirmation timed out"));
   });
+  // Callback: no parameters/return; publish ceiling-rounded deadline seconds for display.
   connect(&m_countdown, &QTimer::timeout, this, [this]() {
     m_seconds = qMax(0, (m_deadline.remainingTime() + 999) / 1000);
     emit promptChanged();
@@ -36,6 +39,7 @@ PairingAgent::PairingAgent(const QDBusConnection &bus, QObject *parent)
       QStringLiteral("org.bluez"), bus,
       QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+          // Callback: unused owner-change values -> void; reject old prompt/registration.
           [this](const QString &, const QString &, const QString &) {
     ++m_generation;
     finish(false, QStringLiteral("Bluetooth service changed"));
@@ -45,6 +49,7 @@ PairingAgent::PairingAgent(const QDBusConnection &bus, QObject *parent)
     }
   });
   connect(qApp, &QCoreApplication::aboutToQuit, this,
+          // Callback: no args/return; disable registration and reject before normal exit.
           [this]() { setEnabled(false); });
 }
 
@@ -92,6 +97,7 @@ void PairingAgent::registerAgent() {
   auto call = managerCall(QStringLiteral("RegisterAgent"));
   call << QStringLiteral("DisplayYesNo");
   auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(call, 5000), this);
+  // Callback: no args/return; only current registration may request default-agent status.
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, generation]() {
     watcher->deleteLater();
@@ -105,6 +111,7 @@ void PairingAgent::registerAgent() {
     }
     auto *defaultWatcher = new QDBusPendingCallWatcher(
         m_bus.asyncCall(managerCall(QStringLiteral("RequestDefaultAgent")), 5000), this);
+    // Callback: no args/return; publish current default-agent error or clear recovery.
     connect(defaultWatcher, &QDBusPendingCallWatcher::finished, this,
             [this, defaultWatcher, generation]() {
       defaultWatcher->deleteLater();
@@ -130,6 +137,7 @@ void PairingAgent::unregisterAgent(bool reportErrors) {
   }
   const quint64 generation = m_generation;
   auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(call, 5000), this);
+  // Callback: no args/return; ignore stale/expected removal, report other teardown failures.
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, generation]() {
     watcher->deleteLater();
@@ -229,6 +237,7 @@ void PairingAgent::cancelPairing(const QString &device) {
       QStringLiteral("org.bluez.Device1"), QStringLiteral("CancelPairing"));
   auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(call, 5000), this);
   const quint64 generation = m_generation;
+  // Callback: no args/return; report only current-generation CancelPairing failure.
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, generation]() {
     watcher->deleteLater();

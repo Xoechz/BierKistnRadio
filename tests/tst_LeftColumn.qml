@@ -34,6 +34,7 @@ TestCase {
         property string sourceError: ""
         property bool switching: false
         property int retries: 0
+        // No arguments; returns undefined. Count explicit retry without any real backend call.
         function retrySource() { retries++ }
     }
 
@@ -51,6 +52,7 @@ TestCase {
         }
     }
 
+    // No arguments; returns undefined. Reset theme, source metadata/errors and retry count.
     function init() {
         Theme.darkMode = true
         facade.playbackState = PlaybackController.SpotifyActive
@@ -65,10 +67,12 @@ TestCase {
         facade.retries = 0
     }
 
+    // No arguments; returns undefined. Restore shared dark theme for later cases.
     function cleanup() {
         Theme.darkMode = true
     }
 
+    // No arguments; returns undefined. Check lifecycle error, retry click/disable and clearing.
     function test_sourceTransitionErrorAndRetry() {
         facade.playbackState = PlaybackController.BluetoothWaiting
         facade.sourceError = "Spotify shutdown: Permission denied — check system config"
@@ -85,10 +89,12 @@ TestCase {
         tryCompare(retry, "visible", false)
     }
 
+    // title: Label under test. Returns undefined; assert bounds, lines and nonoverlap.
     function checkTitleFits(title) {
         var artist = findChild(leftColumn, "artistLabel")
         var album = findChild(leftColumn, "albumLabel")
         verify(title !== null && artist !== null && album !== null)
+        // Predicate: no arguments; returns bool when title width/x fit the column.
         tryVerify(function() {
             return title.x >= 0 && title.width > 0
                    && title.x + title.width <= leftColumn.width
@@ -111,11 +117,13 @@ TestCase {
         verify(album.y + album.height <= leftColumn.height)
     }
 
+    // No arguments; returns undefined. Check wrap/elide for long Spotify title/word in both themes.
     function test_spotifyLongTitleBothThemes() {
         var title = findChild(leftColumn, "trackTitleLabel")
         for (var dark of [true, false]) {
             Theme.darkMode = dark
             spotify.title = "Good Vibrations - Remastered"
+            // Predicate: no arguments; returns whether the title has wrapped yet.
             tryVerify(function() { return title.lineCount > 1 })
             checkTitleFits(title)
 
@@ -126,6 +134,7 @@ TestCase {
         }
     }
 
+    // No arguments; returns undefined. Check BT track/device suffix and no-track title bounds.
     function test_bluetoothTitleAndDeviceNameBothThemes() {
         var title = findChild(leftColumn, "trackTitleLabel")
         facade.playbackState = PlaybackController.BluetoothActive
@@ -133,6 +142,7 @@ TestCase {
             Theme.darkMode = dark
             bluetooth.trackTitle = "Good Vibrations - Remastered"
             bluetooth.connectedDeviceName = "A very long phone name"
+            // Predicate: no arguments; returns whether the title has wrapped yet.
             tryVerify(function() { return title.lineCount > 1 })
             checkTitleFits(title)
 
@@ -143,12 +153,14 @@ TestCase {
 
             bluetooth.trackPublished = false
             var noTrackTitle = findChild(leftColumn, "btNoTrackTitle")
+            // Predicate: no arguments; returns whether the fallback title is visible yet.
             tryVerify(function() { return noTrackTitle.visible })
             checkTitleFits(noTrackTitle)
             bluetooth.trackPublished = true
         }
     }
 
+    // No arguments; returns undefined. Assert client-error selection and recovery visibility.
     function test_sourceErrorsStayWithSelectedSource() {
         var error = findChild(leftColumn, "sourceErrorLabel")
         verify(error !== null)

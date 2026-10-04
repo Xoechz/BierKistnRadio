@@ -23,6 +23,7 @@ Item {
             x: 20
             y: 20
             text: "Underlying touch UI"
+            // Handler: no arguments/return; count any click that incorrectly passed through modal.
             onClicked: window.clicks++
         }
         SourceTransitionOverlay {
@@ -32,6 +33,7 @@ Item {
         TestCase {
             name: "SourceTransitionOverlayTests"
             when: window.visible
+            // No arguments; returns undefined. Reset transition/error/theme and wait for hide.
             function cleanup() {
                 fakePlayback.switching = false
                 fakePlayback.sourceError = ""
@@ -40,6 +42,8 @@ Item {
                 Theme.darkMode = true
                 tryCompare(loading, "visible", false)
             }
+            // No arguments; returns undefined. Assert full extent, spinner, blocked input,
+            // backend-only timeout policy and input recovery in both themes.
             function test_slowStartupBlocksWholeWindow() {
                 for (var dark of [true, false]) {
                     const previousClicks = window.clicks
@@ -65,6 +69,8 @@ Item {
                     compare(window.clicks, previousClicks + 1)
                 }
             }
+            // No arguments; returns undefined. Assert failure hide, retained waiting source,
+            // no loader on passive recovery, then explicit retry/show and ready/hide.
             function test_failureRetryAndLateRecovery() {
                 fakePlayback.switching = true
                 tryCompare(loading, "opened", true)

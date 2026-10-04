@@ -15,7 +15,10 @@ public:
   QStringList canceledDevices;
   bool denyDefault = false;
   bool denyUnregister = false;
+  /// Unused path -> empty XML; explicit-call fixture does not need introspection data.
   QString introspect(const QString &) const override { return {}; }
+  /// message/bus: incoming call and responding connection; returns handled bool.
+  /// Records agent/cancellation calls and injects configured permission errors.
   bool handleMessage(const QDBusMessage &message,
                      const QDBusConnection &bus) override {
     if (message.interface() == QStringLiteral("org.bluez.Device1") &&
@@ -56,14 +59,24 @@ public:
 class TestPairing : public QObject {
   Q_OBJECT
 private slots:
+  // Slots take no parameters, return void, and report outcomes through Qt assertions.
+  /// Start private daemon/connections and register the BlueZ mock.
   void initTestCase();
+  /// Disconnect test buses and terminate/wait for the private daemon.
   void cleanupTestCase();
+  /// Check delayed consent, padded code, duplicates, rejection and stale prompt IDs.
   void confirmationAndStaleDecisions();
+  /// Check unsupported notification flow cancels, daemon Cancel and destruction reject.
   void displayUpdatesCancelAndExit();
+  /// Check real thirty-second timeout, expired decisions and paired service authorization.
   void timeoutAndServiceAuthorization();
+  /// Check default-agent denial, enable-cycle recovery and disabled requests.
   void registrationErrorAndRecovery();
+  /// Check forged callers, nonexported resolve, daemon return and obsolete decision IDs.
   void senderValidationAndDaemonRestart();
+  /// Check source/power pairing gate, bond invalidation and saved-device reconnection.
   void adapterAvailabilityAndPairedReconnect();
+  /// Check explicit unregistration denial and subsequent registration recovery.
   void unregisterFailureIsVisible();
 
 private:
@@ -72,7 +85,10 @@ private:
   QDBusConnection app = QDBusConnection(QStringLiteral("pairing-app"));
   QDBusConnection bluez = QDBusConnection(QStringLiteral("pairing-bluez"));
   MockAgentManager manager;
+  /// method/args: Agent1 request and typed payload. Returns a forty-second pending call
+  /// from mock BlueZ, longer than the agent's thirty-second confirmation deadline.
   QDBusPendingCall call(const QString &method, const QVariantList &args = {});
+  /// agent: reference under test. Returns void; install lookups/enable, assert registration.
   void ready(PairingAgent &agent);
 };
 
@@ -106,6 +122,7 @@ QDBusPendingCall TestPairing::call(const QString &method, const QVariantList &ar
 
 void TestPairing::ready(PairingAgent &agent) {
   const int before = manager.defaults;
+  // Lookup closures: unused path -> fixed name; path -> whether fixture marks it paired.
   agent.setDeviceLookup([](const QString &) { return QStringLiteral("Test Phone"); },
                         [](const QString &path) { return path.endsWith(QStringLiteral("paired")); });
   agent.setEnabled(true);

@@ -43,12 +43,14 @@ PlaybackController::PlaybackController(const QDBusConnection &sessionBus,
   m_transitionTimer.setObjectName(QStringLiteral("sourceTransitionDeadline"));
   m_transitionTimer.setTimerType(Qt::PreciseTimer);
   m_transitionTimer.setInterval(transitionTimeoutMs);
+  // Callback: no parameters/return; only a still-active transition can time out.
   connect(&m_transitionTimer, &QTimer::timeout, this, [this]() {
     if (m_switching) {
       failTransition((m_bluetoothSelected ? QStringLiteral("Bluetooth") : QStringLiteral("Spotify"))
           + QStringLiteral(" source transition timed out — check system config and retry"));
     }
   });
+  // Callback: no parameters/return; boot Spotify unless another attempt already began.
   QTimer::singleShot(0, this, [this]() {
     if (m_attempt == 0) {
       beginTransition(false);
@@ -214,6 +216,8 @@ void PlaybackController::advanceTransition() {
                                                : !m_bluetooth->adapterPowered();
   QPointer<PlaybackController> self(this);
   const quint64 attempt = m_attempt;
+  // Callback: classified acknowledgement/error -> void; borrow facade through QPointer.
+  // Captured attempt rejects stale replies; fresh observations, not this callback, advance.
   const auto finished = [self, attempt](const QString &error) {
     if (!self || attempt != self->m_attempt || !self->m_switching) {
       return;

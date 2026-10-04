@@ -1,6 +1,9 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 
+/// Configure missing kiosk defaults, load compiled Main QML and run the GUI loop.
+/// @param argc Argument count. @param argv Application argument vector.
+/// @return Qt event-loop exit code, or -1 when no root QML object loads.
 int main(int argc, char *argv[]) {
   if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) {
     qputenv("QT_QPA_PLATFORM", "wayland");

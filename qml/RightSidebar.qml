@@ -10,6 +10,7 @@ Rectangle {
     property var wifiController: WifiController
     property var playback: PlaybackController
 
+    // Binding: no explicit arguments; returns cached device/mute/source/power status text.
     readonly property string btStatusText: {
         const bt = root.playback.bluetooth
         const name = bt.connectedDeviceName
@@ -26,6 +27,7 @@ Rectangle {
         }
     }
 
+    // Binding: no explicit arguments; returns connected SSID or disconnected text.
     readonly property string wifiStatusText: {
         if (root.wifiController.connected) {
             return root.wifiController.ssid
@@ -74,6 +76,7 @@ Rectangle {
                         from: 0
                         to: 150
                         value: VolumeController.volume
+                        // Handler: no arguments/return; request shared percentage, clamped in C++.
                         onMoved: VolumeController.setVolume(value)
                     }
 
@@ -96,6 +99,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 text: VolumeController.muted ? "🔇" : "🔊"
                 Accessible.name: VolumeController.muted ? "Unmute volume" : "Mute volume"
+                // Handler: no arguments/return; zero/restore level, not the separate sink mute flag.
                 onClicked: VolumeController.setMuted(!VolumeController.muted)
             }
         }
@@ -124,6 +128,7 @@ Rectangle {
             Item { Layout.fillWidth: true }
             Switch {
                 checked: Theme.darkMode
+                // Handler: no arguments/return; apply switch state to shared theme.
                 onToggled: Theme.darkMode = checked
             }
         }
@@ -189,6 +194,7 @@ Rectangle {
             text: "Wifi Settings"
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.touchTarget
+            // Handler: no arguments/return; open popup whose visual parent is window overlay.
             onClicked: wifiDialog.open()
         }
     }

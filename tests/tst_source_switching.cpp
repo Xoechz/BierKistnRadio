@@ -26,14 +26,19 @@ public:
   const QString adapter = QStringLiteral("/org/bluez/hci0");
   const QString unit = QStringLiteral("/org/freedesktop/systemd1/unit/spotifyd_2eservice");
 
+  /// Unused path -> empty XML; explicit-call fixtures supply typed replies directly.
   QString introspect(const QString &) const override { return {}; }
+  /// No parameters; returns current fixture Powered/UUIDs QVariantMap snapshot.
   QVariantMap adapterProps() const {
     return {{QStringLiteral("Powered"), powered},
             {QStringLiteral("UUIDs"), sink
                 ? QStringList{QStringLiteral("0000110b-0000-1000-8000-00805f9b34fb")}
                 : QStringList{}}};
   }
+  /// message/bus: incoming call and reply connection; returns handled/rejected bool.
+  /// Enforce paths/signatures, record order and allow held/error/state fixtures.
   bool handleMessage(const QDBusMessage &message, const QDBusConnection &bus) override {
+    // No parameters; returns true after sending InvalidArgs using captured call/bus.
     const auto reject = [&]() {
       bus.send(message.createErrorReply(QStringLiteral("org.freedesktop.DBus.Error.InvalidArgs"),
                                         QStringLiteral("Incorrect path, interface, or signature")));
@@ -142,19 +147,34 @@ public:
 class TestSourceSwitching : public QObject {
   Q_OBJECT
 private slots:
+  // All slots take no parameters and return void; Qt assertions report pass/failure.
+  /// Start private daemon, register systemd/BlueZ services and typed snapshot fixture.
   void initTestCase();
+  /// Disconnect clients and terminate/wait for daemon.
   void cleanupTestCase();
+  /// Restore state/error/hold flags and clear recorded commands/reads before each case.
   void init();
+  /// Check production deadline, no redundant boot action, and ordered transitions both ways.
   void bootAndOrderedTransitions();
+  /// Check acknowledgement cannot enable incoming backend before actual shutdown.
   void shutdownMustBeObserved();
+  /// Check retained source/error, no passive command retry and explicit permission recovery.
   void permissionFailureAndManualRetry();
+  /// Check bounded issued-startup failure and passive late readiness without another command.
   void timeoutAndLateRecovery();
+  /// Check powered-only/activating states wait for local sink UUID/active service.
   void sinkAndServiceReadiness();
+  /// Check held pre-command service snapshot cannot advance shutdown/startup ordering.
   void staleReadsCannotAdvance();
+  /// Check malformed state is visible and a later valid observation recovers.
   void malformedStateIsAnError();
+  /// Check late outgoing shutdown cannot issue never-started incoming backend without Retry.
   void outgoingTimeoutRequiresRetry();
+  /// Check failed unit startup/no relaunch loop and later active-state recovery.
   void failedSpotifyStartupAndRecovery();
+  /// Check live adapter updates supersede older held reads.
   void staleAdapterReadAfterLiveUpdate();
+  /// Check NoSuchUnit is actionable unavailability and issues no unsafe lifecycle command.
   void missingUnitIsUnavailable();
 
 private:
@@ -162,6 +182,7 @@ private:
   QDBusConnection client = QDBusConnection(QStringLiteral("source-client"));
   QDBusConnection server = QDBusConnection(QStringLiteral("source-server"));
   SourceServices services;
+  /// playback: facade under test. Returns void; wait/assert ready Spotify without MPRIS/phone.
   void boot(PlaybackController &playback);
 };
 

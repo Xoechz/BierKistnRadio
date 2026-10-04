@@ -11,6 +11,7 @@ Rectangle {
 
     readonly property bool switching: PlaybackController.switching
 
+    // Binding: no explicit arguments; returns whether requested view is a Bluetooth state.
     readonly property bool bluetoothActive: {
         switch (PlaybackController.playbackState) {
         case PlaybackController.BluetoothWaiting:
@@ -86,6 +87,7 @@ Rectangle {
             MouseArea {
                 anchors.fill: parent
                 enabled: !root.switching
+                // Handler: no arguments/return; select a source, disabled during transition.
                 onClicked: root.switchSource()
             }
         }
@@ -102,6 +104,7 @@ Rectangle {
                 flat: true
                 font.pixelSize: Theme.fontSizeLarge
                 Material.foreground: Theme.textColor
+                // Handler: no arguments/return; ask for confirmation before any reboot command.
                 onClicked: powerDialog.openFor("reboot")
             }
             Button {
@@ -109,6 +112,7 @@ Rectangle {
                 flat: true
                 font.pixelSize: Theme.fontSizeLarge
                 Material.foreground: Theme.errorColor
+                // Handler: no arguments/return; ask for confirmation before poweroff.
                 onClicked: powerDialog.openFor("shutdown")
             }
         }
@@ -118,6 +122,7 @@ Rectangle {
         id: powerDialog
     }
 
+    // No arguments; returns undefined. Toggle explicit selection unless already switching.
     function switchSource() {
         if (root.switching) {
             return
@@ -133,6 +138,7 @@ Rectangle {
         interval: 1000
         running: true
         repeat: true
+        // Handler: no arguments/return; refresh local-time clock every second.
         onTriggered: clockLabel.text = Qt.formatTime(new Date(), "HH:mm")
     }
 }

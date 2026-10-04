@@ -144,6 +144,7 @@ void SpotifyClient::sendPlayerCommand(const QString &method,
       m_mprisService, kPlayerPath, kPlayerInterface, method);
   msg.setArguments(args);
   auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(msg, 5000), this);
+  // Callback: no parameters/return; captured generation permits only newest command error.
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, generation, method]() {
             if (generation == m_commandGeneration && watcher->isError()) {
@@ -318,6 +319,7 @@ void SpotifyClient::fetchInitialMprisState() {
       m_mprisService, kPlayerPath, kPropertiesInterface, "GetAll");
   msg << kPlayerInterface;
   auto *watcher = new QDBusPendingCallWatcher(m_bus.asyncCall(msg, 5000), this);
+  // Callback: no parameters/return; discard old service/generation snapshots and normal loss.
   connect(watcher, &QDBusPendingCallWatcher::finished, this,
           [this, watcher, generation, service]() {
             const QDBusPendingReply<QVariantMap> reply = *watcher;

@@ -27,6 +27,7 @@ Popup {
     property bool selectedSecured: false
     property string password: ""
 
+    // Handler: no arguments/return; retain in-flight selection, otherwise reset then scan.
     onOpened: {
         if (!root.wifiController.connecting) {
             root.selectedSsid = ""
@@ -35,11 +36,13 @@ Popup {
         }
         root.wifiController.scan()
     }
+    // Handler: no arguments/return; dismiss input focus/keyboard, not an issued NM activation.
     onClosed: {
         passwordField.focus = false
         Qt.inputMethod.hide()
     }
 
+    // strength: signal percentage. Returns one bar glyph at <25/<50/<75/otherwise thresholds.
     function strengthBars(strength) {
         if (strength < 25) {
             return "▂"
@@ -53,6 +56,7 @@ Popup {
         return "█"
     }
 
+    // No arguments; returns undefined. Pass selected SSID/password; wait for observed success.
     function connectSelected() {
         root.wifiController.connect(root.selectedSsid, root.password)
     }
@@ -79,6 +83,7 @@ Popup {
                 flat: true
                 Layout.preferredWidth: Theme.touchTarget
                 Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; request fresh inventory/scan.
                 onClicked: root.wifiController.scan()
             }
         }
@@ -143,6 +148,8 @@ Popup {
                     }
                 }
 
+                // Handler: no arguments/return; modelData supplies SSID/security.
+                // Open networks activate immediately; secured fields receive deferred focus.
                 onClicked: {
                     root.selectedSsid = modelData.ssid
                     root.selectedSecured = modelData.secured
@@ -151,6 +158,8 @@ Popup {
                         root.connectSelected()
                     } else if (modelData.secured) {
                         const ssid = modelData.ssid
+                        // Callback: no arguments; returns undefined. Captured SSID must still
+                        // match a visible secured selection before showing the keyboard.
                         Qt.callLater(function() {
                             if (root.visible && root.selectedSecured && root.selectedSsid === ssid) {
                                 passwordField.forceActiveFocus()
@@ -171,6 +180,7 @@ Popup {
             placeholderText: "Password for " + root.selectedSsid
             echoMode: TextInput.Password
             text: root.password
+            // Handler: no arguments/return; keep the masked field's edited value in the popup.
             onTextChanged: root.password = text
         }
 
@@ -183,6 +193,7 @@ Popup {
                 text: "Cancel"
                 flat: true
                 Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; close UI without cancelling an issued activation.
                 onClicked: root.close()
             }
             Item { Layout.fillWidth: true }
@@ -191,6 +202,7 @@ Popup {
                 text: "Connect"
                 enabled: root.selectedSsid !== "" && !root.wifiController.connecting
                 Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; start selected activation, not close-on-call.
                 onClicked: root.connectSelected()
             }
         }
@@ -198,6 +210,7 @@ Popup {
 
     Connections {
         target: root.wifiController
+        // ssid: actually activated network. Returns undefined; only matching selection closes.
         function onConnectionSucceeded(ssid) {
             if (root.visible && ssid === root.selectedSsid) {
                 root.close()

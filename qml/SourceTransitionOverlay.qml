@@ -19,6 +19,7 @@ Popup {
     focus: true
     closePolicy: Popup.NoAutoClose
     visible: playback.switching
+    // Handler: no arguments/return; remove keyboard before transition modal takes all touch input.
     onAboutToShow: Qt.inputMethod.hide()
 
     background: Rectangle { color: Theme.loadingOverlayColor }

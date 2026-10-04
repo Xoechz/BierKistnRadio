@@ -17,6 +17,7 @@ TestCase {
         property int calls: 0
         property int lastChoice: -1
 
+        // choice: takeover enum. Returns undefined; count/record and simulate resolution busy.
         function resolveTakeover(choice) {
             calls += 1
             lastChoice = choice
@@ -36,6 +37,7 @@ TestCase {
         }
     }
 
+    // No arguments; returns undefined. Reset pending/resolving/error/action fixture fields.
     function cleanup() {
         fakeBluetooth.takeoverPending = false
         fakeBluetooth.takeoverResolving = false
@@ -44,6 +46,7 @@ TestCase {
         fakeBluetooth.lastChoice = -1
     }
 
+    // No arguments; returns undefined. Check modal/busy/error/countdown guards and manual retry.
     function test_pendingFailureAndRetry() {
         fakeBluetooth.takeoverPending = true
         tryCompare(dialog, "visible", true)

@@ -16,11 +16,14 @@ Popup {
 
     Connections {
         target: root.agent
+        // No arguments; returns undefined. Capture the ID displayed by this prompt.
         function onPromptChanged() {
             root.displayedRequestId = root.agent.requestId
         }
     }
+    // Handler: no arguments/return; seed the backend's current decision ID.
     Component.onCompleted: displayedRequestId = agent.requestId
+    // Handler: no arguments/return; a dismissed still-pending prompt is explicit rejection.
     onClosed: {
         if (agent.pending) {
             agent.resolve(displayedRequestId, false)
@@ -74,6 +77,7 @@ Popup {
                 text: "Reject"
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; reject the displayed ID, not a later request.
                 onClicked: root.agent.resolve(root.displayedRequestId, false)
             }
             Button {
@@ -81,6 +85,7 @@ Popup {
                 text: "Codes Match"
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; explicit consent, revalidated by backend deadline/ID.
                 onClicked: root.agent.resolve(root.displayedRequestId, true)
             }
         }

@@ -19,6 +19,7 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Alt+F4"
+        // Handler: no arguments/return; explicit Alt+F4 closes the application window.
         onActivated: root.close()
     }
 

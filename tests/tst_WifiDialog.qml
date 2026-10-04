@@ -48,9 +48,12 @@ Item {
             property string requestedSsid: ""
             property string requestedPassword: ""
             signal connectionSucceeded(string ssid)
+            // No arguments; returns undefined. Count scans of predetermined fixture rows.
             function scan() {
                 scans++
             }
+            // ssid/password: submitted credentials. Returns undefined; record/count and mark
+            // pending, deliberately without emitting successful activation.
             function connect(ssid, password) {
                 requestedSsid = ssid
                 requestedPassword = password
@@ -73,9 +76,11 @@ Item {
             id: test
             name: "WifiDialogIntegration"
             when: window.visible
+            // No arguments; returns named WifiDialog QObject (null if absent).
             function popup() {
                 return findChild(sidebar, "wifiDialog")
             }
+            // No arguments; returns undefined. Activate test window and reset Wi-Fi/keyboard space.
             function init() {
                 window.requestActivate()
                 wifi.connecting = false
@@ -84,16 +89,21 @@ Item {
                 wifi.scans = 0
                 popup().keyboardTop = window.height
             }
+            // No arguments; returns undefined. Close/wait for popup and restore shared dark theme.
             function cleanup() {
                 popup().close()
                 tryCompare(popup(), "visible", false)
                 Theme.darkMode = true
             }
+            // item: visual QObject; height: allowed window-relative pixels. Returns undefined;
+            // assert x/y/extent bounds with one-pixel tolerance, including keyboard-space cases.
             function onScreen(item, height) {
                 var point = item.mapToItem(window.contentItem, 0, 0)
                 verify(point.x >= 0 && point.x + item.width <= window.width + 1, item.objectName + " outside horizontal bounds: " + point.x)
                 verify(point.y >= 0 && point.y + item.height <= height + 1, item.objectName + " outside vertical bounds: " + point.y)
             }
+            // No arguments; returns undefined. Click actual sidebar button and assert overlay
+            // parent, opened state and reachable content/Cancel rather than opening directly.
             function openFromButton() {
                 var button = findChild(sidebar, "wifiSettingsButton")
                 verify(button !== null)
@@ -104,6 +114,7 @@ Item {
                 onScreen(popup().contentItem, window.height)
                 onScreen(findChild(popup(), "wifiCancelButton"), window.height)
             }
+            // No arguments; returns undefined. Check repeated scanning/list/Cancel in both themes.
             function test_actualButtonAndRepeatedCloseBothThemes() {
                 for (var dark of [true, false]) {
                     Theme.darkMode = dark
@@ -118,9 +129,12 @@ Item {
                     }
                 }
             }
+            // No arguments; returns undefined. Check real delegate focus, simulated 280 px
+            // keyboard region, credentials/errors and close only on matching activated SSID.
             function test_passwordKeyboardGeometryAndActivationResult() {
                 openFromButton()
                 var list = findChild(popup(), "wifiNetworkList")
+                // Predicate: no arguments; returns whether first network delegate exists yet.
                 tryVerify(function () {
                     return list.itemAtIndex(0) !== null
                 })
@@ -150,6 +164,7 @@ Item {
                 tryCompare(popup(), "visible", false)
                 compare(password.activeFocus, false)
             }
+            // No arguments; returns undefined. Escape-dismiss and verify underlying reopen works.
             function test_escapeClearsModalInputBlock() {
                 openFromButton()
                 keyClick(Qt.Key_Escape)

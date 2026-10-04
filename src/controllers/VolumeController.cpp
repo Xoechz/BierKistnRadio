@@ -12,12 +12,14 @@ constexpr int kPollIntervalMs = 1000;
 }
 
 VolumeController::VolumeController(QObject *parent) : QObject(parent) {
+  // Runner: wpctl arguments (without executable) and completion(stdout,error) -> void.
   m_runner = [this](const QStringList &args,
                  const std::function<void(const QByteArray &, const QString &)> &onFinished) {
     auto *proc = new QProcess(this);
     auto completed = std::make_shared<bool>(false);
     auto *timeout = new QTimer(proc);
     timeout->setSingleShot(true);
+    // Callback: no args/return; kill/report once through shared completion guard.
     QObject::connect(timeout, &QTimer::timeout, proc, [proc, onFinished, completed]() {
       if (*completed) {
         return;
@@ -28,6 +30,7 @@ VolumeController::VolumeController(QObject *parent) : QObject(parent) {
       proc->deleteLater();
     });
     QObject::connect(proc, &QProcess::errorOccurred, proc,
+                     // Callback: process error -> void; resolve FailedToStart once.
                      [proc, onFinished, completed](QProcess::ProcessError error) {
                        if (error != QProcess::FailedToStart || *completed) {
                          return;
@@ -37,6 +40,7 @@ VolumeController::VolumeController(QObject *parent) : QObject(parent) {
                        proc->deleteLater();
                      });
     QObject::connect(proc, &QProcess::finished, proc,
+                      // Callback: exit code/status -> void; supply stdout and raw failure.
                       [proc, onFinished, completed](int exitCode, QProcess::ExitStatus status) {
                         if (*completed) {
                           return;
@@ -90,6 +94,7 @@ void VolumeController::setVolume(int percent) {
   const quint64 genAtIssue = m_writeGen;
   m_runner(QStringList{QStringLiteral("set-volume"), QStringLiteral("@DEFAULT_AUDIO_SINK@"),
                         QString::number(percent) + QStringLiteral("%")},
+            // Callback: unused stdout/raw error -> void; discard superseded writes.
             [this, genAtIssue, percent](const QByteArray &, const QString &error) {
               if (genAtIssue != m_writeGen) {
                 return;
@@ -131,6 +136,7 @@ int VolumeController::parseVolume(const QByteArray &output) {
 void VolumeController::pollVolume() {
   const quint64 genAtIssue = m_writeGen;
   m_runner(QStringList{QStringLiteral("get-volume"), QStringLiteral("@DEFAULT_AUDIO_SINK@")},
+            // Callback: stdout/raw error -> void; reject pre-write reads and track recovery.
             [this, genAtIssue](const QByteArray &output, const QString &error) {
               if (genAtIssue != m_writeGen) {
                 return; // a write landed after this read was issued; discard stale

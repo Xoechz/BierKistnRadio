@@ -18,10 +18,13 @@ public:
   QList<qint64> times;
   QElapsedTimer clock;
 
+  /// No parameters/return; install TCP fixture callbacks and request-time clock.
   RecordingServer() {
     clock.start();
+    // Callback: no parameters/return; accept socket and install per-request handling.
     connect(this, &QTcpServer::newConnection, this, [this]() {
       QTcpSocket *socket = nextPendingConnection();
+      // Callback: no args/return; captured socket bytes form one complete header request.
       connect(socket, &QTcpSocket::readyRead, socket, [this, socket]() {
         QByteArray &data = m_buffers[socket];
         data += socket->readAll();
@@ -38,6 +41,7 @@ public:
     });
   }
 
+  /// status: HTTP code; body: JSON bytes. Returns void; queue response and flush waiting socket.
   void enqueue(int status, const QByteArray &body) {
     m_responses.enqueue({status, body});
     flush();
@@ -48,6 +52,7 @@ private:
   QQueue<QTcpSocket *> m_pending;
   QHash<QTcpSocket *, QByteArray> m_buffers;
 
+  /// No parameters/return; pair requests/responses, send sized HTTP payloads, close sockets.
   void flush() {
     while (!m_pending.isEmpty() && !m_responses.isEmpty()) {
       QTcpSocket *socket = m_pending.dequeue();
@@ -66,8 +71,12 @@ class TestReleaseDate : public QObject {
   Q_OBJECT
 
 private slots:
+  // Test slots take no parameters and return void; outcomes use Qt assertions.
+  /// Verify query escaping/headers, date notification, cache reuse and clearing.
   void testLookupAndCache();
+  /// Verify missing/ambiguous records differ from HTTP/network failure.
   void testUnknownAndConnectionFailure();
+  /// Verify obsolete track reply cannot replace new value and requests start >=1 s apart.
   void testStaleResponseAndRateLimit();
 };
 

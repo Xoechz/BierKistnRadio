@@ -1,5 +1,7 @@
 # BierKistn Radio — manual Pi acceptance test plan
 
+For source-level review before testing, use the [application function reference](./docs/FUNCTION_REFERENCE.md) and [test function reference](./docs/TEST_FUNCTION_REFERENCE.md), which document parameters, return values, and asynchronous behavior.
+
 Run this on the **physical Pi under cage at 1024×600** after deploying compatible app and NyxOS revisions. Allow about 45–60 minutes, including a four-minute discoverability check. Automated mock/offscreen tests and the AArch64 package build do not replace these checks.
 
 Record **PASS / FAIL / BLOCKED**, observations, and evidence for each case. A phone feature that BlueZ does not expose should be recorded explicitly rather than reported as an app metadata defect.

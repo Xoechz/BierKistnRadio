@@ -14,6 +14,7 @@ Rectangle {
     readonly property string btDeviceName: playback.bluetooth.connectedDeviceName
     readonly property bool btTrack: playback.bluetooth.trackPublished
     readonly property string transitionError: playback.sourceError || ""
+    // Binding: no explicit arguments; returns lifecycle error first, then selected client error.
     readonly property string sourceError: {
         if (transitionError !== "") {
             return transitionError
@@ -49,6 +50,7 @@ Rectangle {
             enabled: !root.playback.switching
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.touchTarget
+            // Handler: no arguments/return; manually retry the retained source selection.
             onClicked: root.playback.retrySource()
         }
 
@@ -60,6 +62,7 @@ Rectangle {
             wrapMode: Text.WordWrap
             visible: root.playbackState !== PlaybackController.SpotifyActive
                      && root.playbackState !== PlaybackController.BluetoothActive
+            // Binding: no explicit arguments; returns waiting/unavailable hint by view state.
             text: {
                 switch (root.playbackState) {
                 case PlaybackController.SpotifyUnavailable:
@@ -110,6 +113,7 @@ Rectangle {
             elide: Text.ElideRight
             visible: root.playbackState === PlaybackController.SpotifyActive
                      || (root.playbackState === PlaybackController.BluetoothActive && root.btTrack)
+            // Binding: no explicit arguments; returns Spotify title or BT title/device suffix.
             text: {
                 switch (root.playbackState) {
                 case PlaybackController.SpotifyActive:
@@ -133,6 +137,7 @@ Rectangle {
             elide: Text.ElideRight
             visible: root.playbackState === PlaybackController.SpotifyActive
                      || (root.playbackState === PlaybackController.BluetoothActive && root.btTrack)
+            // Binding: no explicit arguments; returns selected-source artist or empty.
             text: {
                 switch (root.playbackState) {
                 case PlaybackController.SpotifyActive:
@@ -156,6 +161,7 @@ Rectangle {
             elide: Text.ElideRight
             visible: root.playbackState === PlaybackController.SpotifyActive
                      || (root.playbackState === PlaybackController.BluetoothActive && root.btTrack)
+            // Binding: no explicit arguments; returns selected-source album or empty.
             text: {
                 switch (root.playbackState) {
                 case PlaybackController.SpotifyActive:

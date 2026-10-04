@@ -76,6 +76,7 @@ Popup {
                 enabled: !root.bluetoothClient.takeoverResolving
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; explicitly disconnect newcomer.
                 onClicked: root.resolveTakeover(BluetoothClient.KeepCurrent)
             }
             Button {
@@ -85,15 +86,18 @@ Popup {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.touchTarget
                 Material.background: Theme.primaryColor
+                // Handler: no arguments/return; explicitly disconnect current phone.
                 onClicked: root.resolveTakeover(BluetoothClient.SwitchToNew)
             }
         }
     }
 
+    // choice: KeepCurrent/SwitchToNew enum. Returns undefined; resolution remains observed.
     function resolveTakeover(choice) {
         root.bluetoothClient.resolveTakeover(choice)
     }
 
+    // Handler: no arguments/return; new visibility starts the ten-second default-choice clock.
     onVisibleChanged: {
         if (root.visible) {
             root.countdown = 10
@@ -102,6 +106,7 @@ Popup {
 
     Connections {
         target: root.bluetoothClient
+        // No arguments; returns undefined. Reset retryable pending choice's countdown.
         function onTakeoverResolvingChanged() {
             if (!root.bluetoothClient.takeoverResolving
                     && root.bluetoothClient.takeoverPending) {
@@ -116,6 +121,7 @@ Popup {
         repeat: true
         running: root.visible && !root.bluetoothClient.takeoverResolving
                  && root.bluetoothClient.takeoverError === ""
+        // Handler: no arguments/return; default KeepCurrent at zero, paused on busy/error.
         onTriggered: {
             root.countdown -= 1
             if (root.countdown <= 0) {

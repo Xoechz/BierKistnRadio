@@ -22,12 +22,16 @@
 class BlueZPropsSubscriber : public QObject {
   Q_OBJECT
 public:
+  /// @param cb Path-aware forwarding closure(interface, changed, invalidated) -> void.
+  /// No return value; subscribeProperties later supplies QObject ownership.
   explicit BlueZPropsSubscriber(
       std::function<void(const QString &, const QVariantMap &,
                          const QStringList &)> cb)
       : m_cb(std::move(cb)) {}
 
 public slots:
+  /// @param interface Signal interface. @param changed Values. @param invalidated Keys.
+  /// No return; forwards data to the captured path-aware closure.
   void onPropertiesChanged(const QString &interface, const QVariantMap &changed,
                            const QStringList &invalidated) {
     m_cb(interface, changed, invalidated);
@@ -65,6 +69,7 @@ const QString kPositionProp = QStringLiteral("Position");
 const QString kDurationKey = QStringLiteral("Duration");
 constexpr int kTakeoverDisconnectTimeoutMs = 5000;
 
+/// @param value Possible D-Bus variant. @return Contained QVariant or original value.
 QVariant unwrapDbusVariant(const QVariant &value) {
   if (value.canConvert<QDBusVariant>()) {
     return value.value<QDBusVariant>().variant();
@@ -72,6 +77,7 @@ QVariant unwrapDbusVariant(const QVariant &value) {
   return value;
 }
 
+/// @param value Variant/map/argument payload. @return Decoded, one-layer-unwrapped map.
 QVariantMap decodedProperties(const QVariant &value) {
   const QVariant unwrapped = unwrapDbusVariant(value);
   QVariantMap result = unwrapped.canConvert<QDBusArgument>()
@@ -90,15 +96,19 @@ BluetoothClient::BluetoothClient(QObject *parent)
 BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
     : QObject(parent), m_bus(bus) {
   m_pairing = new PairingAgent(bus, this);
+  // Lookup callbacks: path -> display QString / cached Paired bool, borrowing our map.
   m_pairing->setDeviceLookup(
       [this](const QString &path) {
         return m_devices.contains(path) ? deviceDisplayName(m_devices.value(path)) : path;
       },
       [this](const QString &path) { return m_devices.value(path).paired; });
   connect(m_pairing, &PairingAgent::errorChanged, this,
+          // Callback: classified error text -> void; keep pairing fault independent.
           [this](const QString &error) {
     setBackgroundError(QStringLiteral("pairingAgent"), error);
   });
+  // Dispatcher: service/path/interface/method/typed args and completion -> void.
+  // Default calls are bounded; completion supplies first reply value/raw error, not readiness.
   m_dbusCall = [bus](const QString &service, const QString &objectPath,
                   const QString &interface, const QString &method,
                   const QVariantList &args,
@@ -110,6 +120,7 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
     QDBusPendingCall pending = bus.asyncCall(msg, 5000);
     auto *watcher = new QDBusPendingCallWatcher(pending);
     QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher,
+                     // Callback: no args/return; extract first value/error and delete watcher.
                      [watcher, onFinished]() {
                        QString error;
                        QVariant reply;
@@ -128,12 +139,14 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
                      });
   };
 
+  // Runner: full argv plus completion(stdout,error) -> void; owns bounded subprocesses.
   m_runner = [this](const QStringList &args,
                 const std::function<void(const QByteArray &, const QString &)> &onFinished) {
     auto *proc = new QProcess(this);
     auto completed = std::make_shared<bool>(false);
     auto *timeout = new QTimer(proc);
     timeout->setSingleShot(true);
+    // Callback: no args/return; kill/report once using the shared completion guard.
     QObject::connect(timeout, &QTimer::timeout, proc, [proc, completed, onFinished]() {
       if (*completed) {
         return;
@@ -144,6 +157,7 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
       proc->deleteLater();
     });
     QObject::connect(proc, &QProcess::finished, proc,
+                     // Callback: exit code/status -> void; deliver stdout/stderr failure once.
                      [proc, completed, onFinished](int code, QProcess::ExitStatus status) {
                         if (*completed) {
                           return;
@@ -162,6 +176,7 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
                        proc->deleteLater();
                      });
     QObject::connect(proc, &QProcess::errorOccurred, proc,
+                      // Callback: process error -> void; handle FailedToStart once.
                       [proc, completed, onFinished](QProcess::ProcessError error) {
                         if (error == QProcess::FailedToStart && !*completed) {
                           *completed = true;
@@ -175,6 +190,7 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
 
   m_takeoverTimer.setSingleShot(true);
   m_takeoverTimer.setInterval(kTakeoverDisconnectTimeoutMs);
+  // Callback: no args/return; retain pending arbitration after disconnect timeout.
   connect(&m_takeoverTimer, &QTimer::timeout, this, [this]() {
     finishTakeoverAttempt(
         QStringLiteral("Bluetooth disconnect timed out — try again"));
@@ -187,6 +203,7 @@ BluetoothClient::BluetoothClient(const QDBusConnection &bus, QObject *parent)
   m_serviceWatcher = new QDBusServiceWatcher(
       kBlueZService, m_bus, QDBusServiceWatcher::WatchForOwnerChange, this);
   connect(m_serviceWatcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+          // Callback: unused name/old owner, new owner -> void; discard old daemon tree.
           [this](const QString &, const QString &, const QString &newOwner) {
             clearBluezState();
             if (!newOwner.isEmpty()) {
@@ -231,6 +248,7 @@ void BluetoothClient::refreshManagedObjects() {
   QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, kBlueZRoot, kObjectManagerInterface,
               QStringLiteral("GetManagedObjects"), QVariantList(),
+              // Callback: snapshot/raw error -> void; tokens reject stale trees/adapter reads.
               [self, generation, adapterRevision](const QVariant &reply, const QString &error) {
                 if (!self || generation != self->m_objectManagerGeneration) {
                   return;
@@ -438,6 +456,7 @@ void BluetoothClient::subscribeProperties(const QString &path,
     return;
   }
   auto *subscriber = new BlueZPropsSubscriber(
+      // Callback: interface/changed/invalidated -> void; captured path restores emitter context.
       [this, path, interface](const QString &iface, const QVariantMap &changed,
                               const QStringList &invalidated) {
         if (iface == interface) {
@@ -807,6 +826,7 @@ void BluetoothClient::refreshAdapterState() {
   const QString path = m_adapterPath;
   QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, path, kPropertiesInterface, QStringLiteral("GetAll"),
+             // Callback: props/raw error -> void; validate captured adapter path/read token.
              {kAdapterInterface}, [self, generation, path](const QVariant &reply, const QString &error) {
     if (!self || generation != self->m_adapterReadGeneration || path != self->m_adapterPath) {
       return;
@@ -839,6 +859,7 @@ void BluetoothClient::requestAdapterPowered(bool powered,
   QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, path, kPropertiesInterface, QStringLiteral("Set"),
       {kAdapterInterface, kPoweredProp, QVariant::fromValue(QDBusVariant(powered))},
+      // Callback: unused value/raw error -> void; acknowledge, invalidate reads, observe again.
       [self, path, powered, finished](const QVariant &, const QString &error) {
     if (!self) {
       return;
@@ -932,6 +953,7 @@ void BluetoothClient::refreshActivePlayer() {
   QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, playerPath, kPropertiesInterface,
              QStringLiteral("GetAll"), QVariantList{kMediaPlayerInterface},
+             // Callback: props/raw error -> void; only current active player may publish.
              [self, devicePath, playerPath, generation](
                  const QVariant &reply, const QString &error) {
                if (!self ||
@@ -983,6 +1005,7 @@ void BluetoothClient::resolveTakeover(TakeoverChoice choice) {
   QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, target, kDeviceInterface,
              QStringLiteral("Disconnect"), QVariantList(),
+             // Callback: unused value/raw error -> void; success still needs observed disconnect.
              [self, target, attempt](const QVariant &, const QString &error) {
                if (!self || !self->m_takeoverResolving ||
                    self->m_takeoverAttempt != attempt ||
@@ -1052,6 +1075,7 @@ void BluetoothClient::ensureDiscoverable() {
               QStringLiteral("Set"),
               QVariantList{kAdapterInterface, kDiscoverableProp,
                            QVariant::fromValue(QDBusVariant(true))},
+              // Callback: unused value/raw error -> void; surface failed discovery assertion.
               [self](const QVariant &, const QString &error) {
                 if (self && !error.isEmpty()) {
                   self->setError(controllerErrorText(
@@ -1089,6 +1113,7 @@ void BluetoothClient::sendPlayerCommand(const QString &playerPath,
   setError(QString());
   QPointer<BluetoothClient> self(this);
   m_dbusCall(kBlueZService, playerPath, kMediaPlayerInterface, method,
+             // Callback: unused reply/raw error -> void; report best-effort control failure.
              QVariantList(), [self, method](const QVariant &, const QString &error) {
                if (self && !error.isEmpty()) {
                  self->setError(controllerErrorText(
@@ -1126,6 +1151,7 @@ void BluetoothClient::setMuted(bool muted) {
 void BluetoothClient::setNodeMuted(const QString &address, bool muted) {
   QPointer<BluetoothClient> self(this);
   m_runner(QStringList{QStringLiteral("pw-dump")},
+           // Callback: JSON stdout/raw error -> void; captured address/intent choose one node.
            [self, muted, address](const QByteArray &output, const QString &error) {
              if (!self) {
                return;
@@ -1143,6 +1169,7 @@ void BluetoothClient::setNodeMuted(const QString &address, bool muted) {
                                         QString::number(nodeId),
                                         muted ? QStringLiteral("1")
                                               : QStringLiteral("0")},
+                            // Callback: unused stdout/raw error -> void; report mute failure.
                             [self](const QByteArray &, const QString &error) {
                               if (self && !error.isEmpty()) {
                                 self->setError(controllerErrorText(
@@ -1163,6 +1190,7 @@ void BluetoothClient::pauseAll() {
     QPointer<BluetoothClient> self(this);
     m_dbusCall(kBlueZService, it.key(), kMediaPlayerInterface,
                QStringLiteral("Pause"), QVariantList(),
+               // Callback: unused reply/raw error -> void; only permission failure is surfaced.
                [self](const QVariant &, const QString &error) {
                  if (self && !error.isEmpty()) {
                    const QString message = controllerErrorText(
