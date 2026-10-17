@@ -156,6 +156,9 @@ private slots:
   void init();
   /// Check production deadline, no redundant boot action, and ordered transitions both ways.
   void bootAndOrderedTransitions();
+  /// Cover held lookup/write callbacks and no node-mute work during adapter shutdown.
+  void shutdownInvalidatesSupplementalMute_data();
+  void shutdownInvalidatesSupplementalMute();
   /// Check acknowledgement cannot enable incoming backend before actual shutdown.
   void shutdownMustBeObserved();
   /// Check retained source/error, no passive command retry and explicit permission recovery.
@@ -247,6 +250,66 @@ void TestSourceSwitching::bootAndOrderedTransitions() {
   QTRY_VERIFY(playback.sourceReady());
   QCOMPARE(services.commands, QStringList({QStringLiteral("stopSpotify"), QStringLiteral("powerOn"),
       QStringLiteral("powerOff"), QStringLiteral("startSpotify")}));
+}
+
+void TestSourceSwitching::shutdownInvalidatesSupplementalMute_data() {
+  QTest::addColumn<bool>("holdLookup");
+  QTest::newRow("pending-node-lookup") << true;
+  QTest::newRow("pending-node-write") << false;
+}
+
+void TestSourceSwitching::shutdownInvalidatesSupplementalMute() {
+  QFETCH(bool, holdLookup);
+  PlaybackController playback(client, client);
+  boot(playback);
+  playback.switchToBluetooth();
+  QTRY_VERIFY(playback.sourceReady());
+  auto *bluetooth = playback.bluetooth();
+  const QByteArray dump = R"([{"id":77,"info":{"props":{"api.bluez5.address":"AA:BB"}}}])";
+  QStringList calls;
+  QList<std::function<void(const QByteArray &, const QString &)>> pending;
+  bluetooth->setCommandRunnerForTest([&](const QStringList &args, const auto &done) {
+    calls.append(args.join(QLatin1Char(' ')));
+    if (args.first() == QStringLiteral("pw-dump") && !holdLookup) {
+      done(dump, QString());
+    } else {
+      pending.append(done);
+    }
+  });
+  bluetooth->bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0/dev_A"),
+      QStringLiteral("org.bluez.Device1"),
+      {{QStringLiteral("Connected"), true}, {QStringLiteral("Address"), QStringLiteral("AA:BB")}});
+  QVERIFY(!pending.isEmpty());
+  const auto obsolete = pending;
+  pending.clear();
+  const auto beforeShutdown = calls;
+  playback.switchToSpotify();
+  QTRY_VERIFY(playback.sourceReady());
+  QCOMPARE(services.commands.last(), QStringLiteral("startSpotify"));
+  QCOMPARE(calls, beforeShutdown); // shutdown must not launch mute/lookups
+  for (const auto &done : obsolete) {
+    done(holdLookup ? dump : QByteArray(),
+         holdLookup ? QString() : QStringLiteral("Object \"77\" not found"));
+  }
+  QCOMPARE(calls, beforeShutdown); // old lookup must not launch wpctl either
+  QVERIFY(bluetooth->errorMessage().isEmpty());
+  QVERIFY(playback.sourceError().isEmpty());
+
+  // Re-enable on return to ready Bluetooth and keep real current-operation errors visible.
+  playback.switchToBluetooth();
+  QTRY_VERIFY(playback.sourceReady());
+  QVERIFY(!pending.isEmpty());
+  auto current = pending.takeLast();
+  if (holdLookup) {
+    current(dump, QString());
+    QVERIFY(!pending.isEmpty());
+    current = pending.takeLast();
+  }
+  current(QByteArray(), QStringLiteral("Object \"77\" not found"));
+  QVERIFY(bluetooth->errorMessage().contains(QStringLiteral("Object \"77\" not found")));
+  playback.switchToSpotify();
+  QTRY_VERIFY(playback.sourceReady());
+  QVERIFY(bluetooth->errorMessage().isEmpty()); // prior mute error is obsolete too
 }
 
 void TestSourceSwitching::shutdownMustBeObserved() {

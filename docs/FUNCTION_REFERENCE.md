@@ -50,9 +50,9 @@ Sources: [header](../src/controllers/PlaybackController.h), [implementation](../
 | `switchToBluetooth()` | None | `void` | Requests a Bluetooth transition through `beginTransition(true)`. |
 | `switchToSpotify()` | None | `void` | Requests a Spotify transition through `beginTransition(false)`. |
 | `retrySource()` | None | `void` | Explicitly restarts transition attempts for the retained selection. |
-| `beginTransition(bluetooth)` | `bool`: requested Bluetooth selection; false selects Spotify | `void` | Ignores requests during switching; advances attempt generation, resets command flags/errors, disables pairing, applies supplemental BT mute, starts the deadline, selects the requested view, and advances ordering. |
+| `beginTransition(bluetooth)` | `bool`: requested Bluetooth selection; false selects Spotify | `void` | Ignores requests during switching; advances attempt generation, resets command flags/errors, disables pairing and supplemental node-mute work (invalidating old callbacks), stores mute intent without starting subprocesses, starts the deadline, selects the requested view, and advances ordering. |
 | `advanceTransition()` | None | `void` | Waits for known state/command acknowledgement, observes outgoing shutdown before issuing incoming startup once, fails on status/start errors, and completes only on readiness. Never repeatedly issues an already-sent command. |
-| `observeSource()` | None | `void` | Advances an active transition or passively updates readiness after it. Clears errors on late readiness, enables pairing/unmutes the ready BT source, and reports readiness loss without relaunching commands. |
+| `observeSource()` | None | `void` | Advances an active transition or passively updates readiness after it. Clears source errors on late readiness, enables pairing and node-mute work only for ready Bluetooth, unmutes that source, and reports readiness loss without relaunching commands. Spotify readiness and readiness loss leave node muting disabled. |
 | `failTransition(error)` | User-facing failure message | `void` | Invalidates control callbacks, freezes progression, stops the deadline, retains selection, publishes failure, and leaves passive observation active. |
 | `requestedReady()` | None | `bool`: both clients know state and the requested source is exclusive/ready | Bluetooth requires stopped spotifyd plus powered/local-sink-ready adapter; Spotify requires active service plus adapter off. |
 | `refreshPlaybackState()` | None | `void` | Derives BT waiting/active from connection state; Spotify active requires cached running service, availability, and a track, otherwise waiting. Does not select a different source. |
@@ -169,7 +169,8 @@ Sources: [header](../src/controllers/BluetoothClient.h), [implementation](../src
 | `pause()` | None | `void` | Best-effort Pause on active device's known player. |
 | `next()` | None | `void` | Best-effort Next on active device's known player. |
 | `previous()` | None | `void` | Best-effort Previous on active device's known player. |
-| `setMuted(muted)` | True: mute connected devices; false: unmute only active device | `void` | Updates intent/notifies, clears prior operation error, and starts per-address node lookup/mute operations. Each lookup selects the first matching dump node. Never targets the shared default sink. |
+| `setMuted(muted)` | True: mute connected devices; false: unmute only active device | `void` | Invalidates previous mute operations/errors and updates intent/notifies; starts per-address node lookup/mute only when enabled. Preserves unrelated errors. Each lookup selects the first matching dump node. Never targets the shared default sink. |
+| `setMuteEnabled(enabled)` | Whether supplemental node mute work is permitted | `void` | Disabling invalidates all pending mute callbacks and clears scoped mute errors only. Enabling permits subsequent intent assertion; the facade enables only for ready Bluetooth. Standalone clients default enabled. |
 | `pauseAll()` | None | `void` | Best-effort Pause for every known player-owner entry, not only the active device. Only permission failures are surfaced here; other supplemental pause failures are ignored. |
 | `setDbusCallableForTest(callable)` | Replacement D-Bus dispatch function | `void` | Installs a test seam for subsequent calls; does not remove constructor-created subscriptions. |
 | `setCommandRunnerForTest(runner)` | Replacement full-argv process runner | `void` | Installs the process seam. |
@@ -192,7 +193,7 @@ Sources: [header](../src/controllers/BluetoothClient.h), [implementation](../src
 | `onDeviceAdded(path, props)` | Device path and initial dictionary | `void` | Subscribes, adds or updates device, records connection order, reapplies mute intent, recalculates selection, and attaches deferred players. |
 | `onDevicePropsChanged(path, props)` | Known device path and changed fields | `void` | Updates identity, bond/connection state, connection ordering, and active/incoming presentation; ignores unknown devices. |
 | `onDeviceRemoved(path)` | Removed device path | `void` | Removes subscriptions/player associations/connection order and recalculates active/takeover state. |
-| `onPlayerAdded(path, props)` | Player path and properties | `void` | Associates known parent device or defers until it exists; applies/refetches active player metadata. |
+| `onPlayerAdded(path, props)` | Player path and properties | `void` | Associates the nearest known device ancestor, including nested `dev_*/avrcp/playerN`, or defers until it exists; applies/refetches active player metadata. |
 | `onPlayerRemoved(path)` | Removed player path | `void` | Removes deferred/owner/subscriber state and resets active AVRCP state when appropriate. |
 | `onAdapterAdded(path, props)` | Adapter path and initial properties | `void` | Selects the first path if none, subscribes, and applies only the selected adapter's fields, invalidating older reads. |
 | `onAdapterPropsChanged(path, props)` | Adapter path and changed dictionary | `void` | Applies selected adapter only; power/UUID changes supersede older snapshots. |
@@ -200,7 +201,7 @@ Sources: [header](../src/controllers/BluetoothClient.h), [implementation](../src
 | `applyAdapterProps(props)` | Powered/Discoverable/Pairable/UUIDs dictionary | `void` | Validates boolean Powered, updates cached fields/local sink publication, reports invalid values, and emits adapter observation. |
 | `resetAvrcp()` | None | `void` | Clears publication, metadata, playing state, and position through change-notifying setters. |
 | `deviceDisplayName(device)` | Cached `DeviceState` | `QString`: Alias, then Name, then Address, then generic fallback | Pure display-name selection. |
-| `parentDeviceOf(objectPath)` | Candidate player object path | `QString`: immediate parent if in device map, otherwise empty | Does not walk arbitrary ancestor depth. |
+| `parentDeviceOf(objectPath)` | Candidate player object path | `QString`: nearest known device ancestor, otherwise empty | Walks whole path components, supporting direct and nested remote players without matching similarly prefixed device names. |
 | `recalculate()` | None | `void` | Resolves observed losing-device disconnect, maintains active connection, selects newest contender, and updates takeover pending/name state. |
 | `setActiveDevice(path)` | New active path; empty clears selection | `void` | Invalidates player reads, resets/applies metadata, requests active-player snapshot, and emits connection-name change. |
 | `finishTakeoverAttempt(error)` | Attempt message; default empty success/recovery | `void` | Stops deadline, clears target/resolving, sets attempt error. Pending choice is separately recalculated from device state. |
@@ -221,7 +222,8 @@ Sources: [header](../src/controllers/BluetoothClient.h), [implementation](../src
 | `setPlayerMetadata(title, artist, album, duration)` | Display strings and duration in ms | `void` | Atomically updates the metadata group and emits only if something changed. |
 | `setPlayerPlaying(playing)` | Observed playing boolean | `void` | Change-only status notification. |
 | `setPlayerPosition(ms)` | Observed position in ms | `void` | Change-only position notification. |
-| `setNodeMuted(address, muted)` | Device MAC; desired node mute boolean | `void` | Runs pw-dump, selects first matching node, then wpctl set-mute 1/0. Missing node silently no-ops; subprocess failures surface. |
+| `setNodeMuted(address, muted)` | Device MAC; desired node mute boolean | `void` | No-ops when disabled; assigns a unique per-address operation token, runs pw-dump, then wpctl set-mute 1/0. Both callbacks require an enabled, still-current token. Missing node/success clears that address's mute error; current failures surface independently of other errors. |
+| `invalidateMuteOperations(address)` | One address, or empty for all | `void` | Removes pending operation tokens and their scoped errors. Used on source disable, daemon reset, adapter power loss, disconnect/removal/address replacement, or superseding mute intent. |
 | `assertDeviceMute(address)` | Device MAC; empty ignored | `void` | Reapplies current mute intent to this address; does not independently choose another source. |
 | `refreshManagedObjects()` | None | `void` | Reads/decode-checks ObjectManager snapshot, applies devices/adapters before deferred player processing, ignores stale generations/adapter snapshots, and establishes absence/known state. |
 | `clearBluezState()` | None | `void` | Invalidates reads and clears subscriptions, devices, players, adapter and takeover state after service-owner change. |
@@ -449,8 +451,9 @@ Identify a lambda by **file + enclosing function + trigger**, rather than line n
 | `BluetoothClient::resolveTakeover` / Disconnect reply | Unused value; raw error | `void` | Reports current-attempt error, otherwise waits for observed disconnect. |
 | `BluetoothClient::ensureDiscoverable` / Set reply | Unused value; raw error | `void` | Reports failed discovery write for live client. |
 | `BluetoothClient::sendPlayerCommand` / reply | Unused value; raw error | `void` | Reports active-control error. |
-| `BluetoothClient::setNodeMuted` / dump completion | Stdout bytes; raw error | `void` | Finds addressed node, then dispatches mute command; absent node no-ops. |
-| `BluetoothClient::setNodeMuted` / mute completion | Unused stdout; raw error | `void` | Reports wpctl mute failure. |
+| `BluetoothClient::setNodeMuted` / `current` closure | None; captures QPointer/address/token | `bool` | Tests client lifetime, mute enablement, and whether the address's latest token still matches. |
+| `BluetoothClient::setNodeMuted` / dump completion | Stdout bytes; raw error | `void` | Ignores obsolete callbacks before command dispatch; otherwise reports scoped lookup failure or finds addressed node and dispatches mute. Absent node clears that address's error. |
+| `BluetoothClient::setNodeMuted` / mute completion | Unused stdout; raw error | `void` | Ignores obsolete callbacks; sets/clears the current address's scoped wpctl mute error. |
 | `BluetoothClient::pauseAll` / Pause reply | Unused value; raw error | `void` | Publishes permission denial only; other supplemental failures are ignored. |
 | `PairingAgent` constructor / deadline | None | `void` | Rejects unanswered current confirmation. |
 | `PairingAgent` constructor / countdown | None | `void` | Updates ceiling-rounded remaining seconds and prompt notification. |
@@ -532,6 +535,13 @@ Source: [StatusBar.qml](../qml/StatusBar.qml).
 ### WifiDialog.qml
 
 Source: [WifiDialog.qml](../qml/WifiDialog.qml).
+
+`Main.qml` passes its overlay-owned `InputPanel` through `RightSidebar.inputPanel`
+to `WifiDialog.inputPanel`. The read-only `keyboardTop` binding uses the visible
+panel's actual `y` (clamped to overlay bounds), or the full overlay height when
+hidden/absent; it does not depend on platform `keyboardRectangle` reporting.
+The popup fits above that boundary. Password entry and Cancel/Connect precede
+the shrinking/scrolling network list, keeping actions above the keyboard.
 
 | Function / handler | Parameters | Return | Purpose / effects |
 | --- | --- | --- | --- |

@@ -305,6 +305,7 @@ void BluetoothClient::refreshManagedObjects() {
 }
 
 void BluetoothClient::clearBluezState() {
+  invalidateMuteOperations();
   ++m_objectManagerGeneration;
   ++m_adapterReadGeneration;
   m_adapterReadPending = false;
@@ -628,6 +629,7 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
     return;
   }
   DeviceState device = m_devices.value(path);
+  const QString oldAddress = device.address;
   if (props.contains(QStringLiteral("Paired"))) {
     device.paired = unwrapDbusVariant(props.value(QStringLiteral("Paired"))).toBool();
   }
@@ -661,6 +663,11 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
                         .value<QDBusObjectPath>().path();
   }
   m_devices.insert(path, device);
+  if (!device.connected || device.address != oldAddress) {
+    if (!oldAddress.isEmpty()) {
+      invalidateMuteOperations(oldAddress);
+    }
+  }
   if (device.connected) {
     assertDeviceMute(device.address);
   }
@@ -676,6 +683,10 @@ void BluetoothClient::onDevicePropsChanged(const QString &path,
 }
 
 void BluetoothClient::onDeviceRemoved(const QString &path) {
+  const QString address = m_devices.value(path).address;
+  if (!address.isEmpty()) {
+    invalidateMuteOperations(address);
+  }
   unsubscribeProperties(path);
   for (auto it = m_deferredPlayers.begin(); it != m_deferredPlayers.end();) {
     if (it.key().startsWith(path + QLatin1Char('/'))) {
@@ -885,12 +896,17 @@ void BluetoothClient::resetAvrcp() {
 }
 
 QString BluetoothClient::parentDeviceOf(const QString &objectPath) const {
-  const int slash = objectPath.lastIndexOf(QLatin1Char('/'));
-  if (slash <= 0) {
-    return QString();
+  // BlueZ may expose dev_*/playerN or dev_*/avrcp/playerN. Walk whole
+  // path components so nesting works without confusing similarly named devices.
+  QString ancestor = objectPath;
+  int slash;
+  while ((slash = ancestor.lastIndexOf(QLatin1Char('/'))) > 0) {
+    ancestor.truncate(slash);
+    if (m_devices.contains(ancestor)) {
+      return ancestor;
+    }
   }
-  const QString candidate = objectPath.left(slash);
-  return m_devices.contains(candidate) ? candidate : QString();
+  return QString();
 }
 
 void BluetoothClient::recalculate() {
@@ -1123,14 +1139,14 @@ void BluetoothClient::sendPlayerCommand(const QString &playerPath,
 }
 
 void BluetoothClient::setMuted(bool muted) {
-  setError(QString());
+  invalidateMuteOperations();
   if (m_muted != muted) {
     m_muted = muted;
     emit mutedChanged();
   }
   if (m_muted) {
-    // Spotify audible: hard-mute EVERY connected A2DP node (whichever of them
-    // is genuinely streaming) — ADR 0008, "mute all".
+    // Supplemental silence for all connected nodes, only while mute work is
+    // enabled. Source transitions disable this and rely on adapter shutdown.
     for (auto it = m_devices.cbegin(); it != m_devices.cend(); ++it) {
       if (it->connected && !it->address.isEmpty()) {
         setNodeMuted(it->address, true);
@@ -1149,34 +1165,67 @@ void BluetoothClient::setMuted(bool muted) {
 }
 
 void BluetoothClient::setNodeMuted(const QString &address, bool muted) {
+  if (!m_muteEnabled) {
+    return;
+  }
+  const quint64 request = ++m_muteSequence;
+  m_muteRequests.insert(address, request);
+  const QString errorKey = QStringLiteral("audioMute:") + address;
   QPointer<BluetoothClient> self(this);
+  // Callback: no arguments; returns whether this address operation is still current.
+  const auto current = [self, address, request]() {
+    return self && self->m_muteEnabled && self->m_muteRequests.value(address) == request;
+  };
   m_runner(QStringList{QStringLiteral("pw-dump")},
-           // Callback: JSON stdout/raw error -> void; captured address/intent choose one node.
-           [self, muted, address](const QByteArray &output, const QString &error) {
-             if (!self) {
+           // Callback: stdout/raw error -> void; only current work may dispatch a mute.
+           [self, muted, address, errorKey, current](const QByteArray &output,
+                                                   const QString &error) {
+             if (!current()) {
                return;
              }
              if (!error.isEmpty()) {
-               self->setError(controllerErrorText(QStringLiteral("Bluetooth audio lookup"), error));
+               self->setBackgroundError(errorKey, controllerErrorText(
+                   QStringLiteral("Bluetooth audio lookup"), error));
                return;
              }
              const int nodeId = bluetoothNodeIdFromPwDump(output, address);
              if (nodeId < 0) {
+               self->setBackgroundError(errorKey, QString());
                return;
              }
-             self->m_runner(QStringList{QStringLiteral("wpctl"),
-                                        QStringLiteral("set-mute"),
-                                        QString::number(nodeId),
-                                        muted ? QStringLiteral("1")
-                                              : QStringLiteral("0")},
-                            // Callback: unused stdout/raw error -> void; report mute failure.
-                            [self](const QByteArray &, const QString &error) {
-                              if (self && !error.isEmpty()) {
-                                self->setError(controllerErrorText(
-                                    QStringLiteral("Bluetooth audio mute"), error));
-                              }
-                            });
+             self->m_runner(
+                 QStringList{QStringLiteral("wpctl"), QStringLiteral("set-mute"),
+                             QString::number(nodeId),
+                             muted ? QStringLiteral("1") : QStringLiteral("0")},
+                 // Callback: unused stdout/raw error -> void; ignore obsolete errors.
+                 [self, errorKey, current](const QByteArray &, const QString &error) {
+                   if (current()) {
+                     self->setBackgroundError(errorKey, error.isEmpty() ? QString()
+                         : controllerErrorText(QStringLiteral("Bluetooth audio mute"), error));
+                   }
+                 });
            });
+}
+
+void BluetoothClient::invalidateMuteOperations(const QString &address) {
+  if (address.isEmpty()) {
+    m_muteRequests.clear();
+  } else {
+    m_muteRequests.remove(address);
+  }
+  const QString prefix = QStringLiteral("audioMute:");
+  for (const QString &key : m_backgroundErrors.keys()) {
+    if (address.isEmpty() ? key.startsWith(prefix) : key == prefix + address) {
+      setBackgroundError(key, QString());
+    }
+  }
+}
+
+void BluetoothClient::setMuteEnabled(bool enabled) {
+  m_muteEnabled = enabled;
+  if (!enabled) {
+    invalidateMuteOperations();
+  }
 }
 
 void BluetoothClient::assertDeviceMute(const QString &address) {
@@ -1232,6 +1281,9 @@ void BluetoothClient::setAdapterPowered(bool powered) {
     return;
   }
   m_adapterPowered = powered;
+  if (!powered) {
+    invalidateMuteOperations();
+  }
   m_pairing->setEnabled(m_pairingEnabled && powered);
   emit adapterPoweredChanged();
 }

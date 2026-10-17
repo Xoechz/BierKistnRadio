@@ -47,6 +47,7 @@ ApplicationWindow {
             }
 
             RightSidebar {
+                inputPanel: keyboardPanel
                 Layout.preferredWidth: 250
                 Layout.fillHeight: true
             }

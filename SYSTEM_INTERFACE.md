@@ -75,6 +75,13 @@ The app observes `org.bluez.Device1` objects (`PropertiesChanged` for `Connected
 
 **Source exclusivity (ADR 0009):** the app observes spotifyd stopped before enabling Bluetooth, and observes the adapter off before starting spotifyd. Powering off disconnects phones. Per-device mute/AVRCP pause remain supplemental safeguards and takeover tools, not proof of shutdown. Mute node discovery matches `api.bluez5.address`, never a hardcoded node name or the shared `@DEFAULT_AUDIO_SINK@`. Keep `pw-dump` and `wpctl` on PATH.
 
+Supplemental node-mute work is enabled only while the Bluetooth source is ready.
+Source transitions invalidate pending lookups/writes instead of launching a mute
+against nodes being removed by adapter shutdown. Disconnect, adapter power loss,
+daemon reset, and superseding intent also invalidate obsolete callbacks. Current
+mute failures remain visible; obsolete mute errors clear without hiding unrelated
+operation or authorization failures.
+
 **logind active-session requirement:** BlueZ/PipeWire only expose Bluetooth device/nodes to the **active logind session**. The kiosk user must hold the active seat (cage creates the session) or Bluetooth devices will not appear. If seat-monitoring interferes, set `monitor.bluez.seat-monitoring = disabled` in WirePlumber.
 
 ### Polkit

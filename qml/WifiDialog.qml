@@ -9,10 +9,12 @@ Popup {
     objectName: "wifiDialog"
     parent: Overlay.overlay
     property var wifiController: WifiController
-    // Input-method coordinates are window-relative, just like this parent.
-    // Keeping this boundary explicit also allows testing compact keyboard space.
-    property real keyboardTop: Qt.inputMethod.visible && Qt.inputMethod.keyboardRectangle.y > 0
-                               ? Qt.inputMethod.keyboardRectangle.y : parent.height
+    // The in-app InputPanel shares the overlay parent. Its actual geometry remains
+    // available even when the platform input method reports an empty rectangle.
+    property var inputPanel: null
+    readonly property real keyboardTop: inputPanel && inputPanel.visible
+                                       ? Math.max(0, Math.min(parent.height, inputPanel.y))
+                                       : parent.height
     readonly property bool compact: keyboardTop < 400
     modal: true
     focus: true
@@ -108,6 +110,43 @@ Popup {
             Layout.fillWidth: true
         }
 
+        TextField {
+            id: passwordField
+            objectName: "wifiPasswordField"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.touchTarget
+            visible: root.selectedSsid !== "" && root.selectedSecured
+            placeholderText: "Password for " + root.selectedSsid
+            echoMode: TextInput.Password
+            text: root.password
+            // Handler: no arguments/return; keep the masked field's edited value in the popup.
+            onTextChanged: root.password = text
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.defaultSpacing
+
+            Button {
+                objectName: "wifiCancelButton"
+                text: "Cancel"
+                flat: true
+                Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; close UI without cancelling an issued activation.
+                onClicked: root.close()
+            }
+            Item { Layout.fillWidth: true }
+            Button {
+                objectName: "wifiConnectButton"
+                text: "Connect"
+                enabled: root.selectedSsid !== "" && !root.wifiController.connecting
+                Layout.preferredHeight: Theme.touchTarget
+                // Handler: no arguments/return; start selected activation, not close-on-call.
+                onClicked: root.connectSelected()
+            }
+        }
+
+        // Network inventory yields space to credentials/actions while typing.
         ListView {
             id: ssidList
             objectName: "wifiNetworkList"
@@ -171,41 +210,6 @@ Popup {
             }
         }
 
-        TextField {
-            id: passwordField
-            objectName: "wifiPasswordField"
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.touchTarget
-            visible: root.selectedSsid !== "" && root.selectedSecured
-            placeholderText: "Password for " + root.selectedSsid
-            echoMode: TextInput.Password
-            text: root.password
-            // Handler: no arguments/return; keep the masked field's edited value in the popup.
-            onTextChanged: root.password = text
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.defaultSpacing
-
-            Button {
-                objectName: "wifiCancelButton"
-                text: "Cancel"
-                flat: true
-                Layout.preferredHeight: Theme.touchTarget
-                // Handler: no arguments/return; close UI without cancelling an issued activation.
-                onClicked: root.close()
-            }
-            Item { Layout.fillWidth: true }
-            Button {
-                objectName: "wifiConnectButton"
-                text: "Connect"
-                enabled: root.selectedSsid !== "" && !root.wifiController.connecting
-                Layout.preferredHeight: Theme.touchTarget
-                // Handler: no arguments/return; start selected activation, not close-on-call.
-                onClicked: root.connectSelected()
-            }
-        }
     }
 
     Connections {

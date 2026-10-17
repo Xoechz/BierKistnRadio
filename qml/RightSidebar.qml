@@ -9,6 +9,7 @@ Rectangle {
     color: Theme.surfaceColor
     property var wifiController: WifiController
     property var playback: PlaybackController
+    property var inputPanel: null
 
     // Binding: no explicit arguments; returns cached device/mute/source/power status text.
     readonly property string btStatusText: {
@@ -202,5 +203,6 @@ Rectangle {
     WifiDialog {
         id: wifiDialog
         wifiController: root.wifiController
+        inputPanel: root.inputPanel
     }
 }

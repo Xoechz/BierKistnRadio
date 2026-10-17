@@ -119,6 +119,9 @@ public:
   /// @param enabled Source-level pairing permission; also requires adapter power.
   /// No return value; registration/rejection effects are asynchronous.
   void setPairingEnabled(bool enabled);
+  /// @param enabled Permit supplemental node mute work while Bluetooth is ready.
+  /// Disabling invalidates pending mute callbacks and clears only mute errors. No return.
+  void setMuteEnabled(bool enabled);
 
   /// Request losing-phone disconnect and retain choice until observed disconnect/removal.
   /// @param choice KeepCurrent disconnects newcomer; SwitchToNew disconnects current.
@@ -292,7 +295,7 @@ private:
   void resetAvrcp();
   /// @param device Cached identity. @return Alias -> Name -> Address -> generic fallback.
   static QString deviceDisplayName(const DeviceState &device);
-  /// @param objectPath Candidate player path. @return Immediate known parent or empty.
+  /// @param objectPath Candidate player path. @return Nearest known device ancestor or empty.
   QString parentDeviceOf(const QString &objectPath) const;
   /// Maintain active device and newest contender from observed connection order.
   /// No parameters/return; losing-device disappearance finishes pending resolution.
@@ -348,6 +351,9 @@ private:
   /// Locate first address-matched node then request wpctl mute; absent node is a no-op.
   /// @param address MAC. @param muted Desired node flag. No return; errors async.
   void setNodeMuted(const QString &address, bool muted);
+  /// @param address One disconnected/replaced address, or empty for all operations.
+  /// Invalidate pending mute callbacks and clear their scoped errors. No return.
+  void invalidateMuteOperations(const QString &address = QString());
   /// @param address MAC to reapply current intent; empty ignored. No return value.
   void assertDeviceMute(const QString &address);
   /// Decode guarded BlueZ snapshot and attach devices/adapters/players. No params/return.
@@ -415,4 +421,7 @@ private:
   qint64 m_duration = 0;
   bool m_isBluetoothPlaying = false;
   bool m_muted = false;
+  bool m_muteEnabled = true;
+  quint64 m_muteSequence = 0;
+  QMap<QString, quint64> m_muteRequests;
 };

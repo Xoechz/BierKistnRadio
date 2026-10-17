@@ -62,6 +62,18 @@ Item {
             }
         }
 
+        // Reproduce in-app panel occlusion without platform keyboardRectangle.
+        Rectangle {
+            id: keyboardPanel
+            parent: Overlay.overlay
+            width: window.width
+            height: 320
+            y: window.height - height
+            visible: false
+            z: 1
+            color: "black"
+        }
+
         RightSidebar {
             id: sidebar
             x: window.width - width
@@ -70,6 +82,7 @@ Item {
             height: window.height - y
             wifiController: wifi
             playback: fakePlayback
+            inputPanel: keyboardPanel
         }
 
         TestCase {
@@ -87,13 +100,15 @@ Item {
                 wifi.errorMessage = ""
                 wifi.connects = 0
                 wifi.scans = 0
-                popup().keyboardTop = window.height
+                keyboardPanel.visible = false
+                keyboardPanel.height = 320
             }
             // No arguments; returns undefined. Close/wait for popup and restore shared dark theme.
             function cleanup() {
                 popup().close()
                 tryCompare(popup(), "visible", false)
                 Theme.darkMode = true
+                keyboardPanel.visible = false
             }
             // item: visual QObject; height: allowed window-relative pixels. Returns undefined;
             // assert x/y/extent bounds with one-pixel tolerance, including keyboard-space cases.
@@ -129,9 +144,19 @@ Item {
                     }
                 }
             }
-            // No arguments; returns undefined. Check real delegate focus, simulated 280 px
-            // keyboard region, credentials/errors and close only on matching activated SSID.
-            function test_passwordKeyboardGeometryAndActivationResult() {
+            // No arguments; returns theme/available-height rows for panel occlusion cases.
+            function test_passwordKeyboardGeometryAndActivationResult_data() {
+                return [
+                    { tag: "dark-280", dark: true, top: 280 },
+                    { tag: "light-280", dark: false, top: 280 },
+                    { tag: "dark-250", dark: true, top: 250 },
+                    { tag: "light-250", dark: false, top: 250 }
+                ]
+            }
+            // data: theme/keyboard top. Returns undefined. Exercise sidebar-to-popup
+            // panel geometry, reachable input/actions and matching-only activation close.
+            function test_passwordKeyboardGeometryAndActivationResult(data) {
+                Theme.darkMode = data.dark
                 openFromButton()
                 var list = findChild(popup(), "wifiNetworkList")
                 // Predicate: no arguments; returns whether first network delegate exists yet.
@@ -142,25 +167,49 @@ Item {
                 compare(popup().selectedSsid, "Secured Test")
                 var password = findChild(popup(), "wifiPasswordField")
                 tryCompare(password, "activeFocus", true)
-                popup().keyboardTop = 280
-                wifi.errorMessage = "Permission denied — check system config"
+                keyboardPanel.height = window.height - data.top
+                keyboardPanel.visible = true
+                wifi.errorMessage = "Permission denied — check system config. This longer error must not hide password entry or connection actions."
                 wait(50)
-                onScreen(password, 280)
-                onScreen(findChild(popup(), "wifiConnectButton"), 280)
-                onScreen(findChild(popup(), "wifiCancelButton"), 280)
-                password.text = "test-password"
+                compare(popup().keyboardTop, data.top)
+                onScreen(password, data.top)
+                onScreen(findChild(popup(), "wifiErrorLabel"), data.top)
+                onScreen(findChild(popup(), "wifiConnectButton"), data.top)
+                onScreen(findChild(popup(), "wifiCancelButton"), data.top)
+                mouseClick(password)
+                keyClick(Qt.Key_T)
+                keyClick(Qt.Key_4)
                 mouseClick(findChild(popup(), "wifiConnectButton"))
                 compare(wifi.connects, 1)
-                compare(wifi.requestedPassword, "test-password")
+                compare(wifi.requestedPassword, "t4")
                 compare(popup().visible, true)
                 // invocation is not connection success
                 wifi.connecting = false
                 wifi.errorMessage = "Wi-Fi connection failed"
                 compare(popup().visible, true)
                 compare(findChild(popup(), "wifiErrorLabel").visible, true)
+                // Hiding/showing the panel restores/shrinks available space by binding.
+                keyboardPanel.visible = false
+                tryCompare(popup(), "keyboardTop", window.height)
+                keyboardPanel.visible = true
+                tryCompare(popup(), "keyboardTop", data.top)
                 wifi.connectionSucceeded("Different network")
                 compare(popup().visible, true)
                 wifi.connectionSucceeded("Secured Test")
+                tryCompare(popup(), "visible", false)
+                compare(password.activeFocus, false)
+            }
+            // No arguments; returns undefined. Cancel remains clickable above the panel.
+            function test_cancelWhileKeyboardOpen() {
+                openFromButton()
+                var list = findChild(popup(), "wifiNetworkList")
+                tryVerify(function () { return list.itemAtIndex(0) !== null })
+                mouseClick(list.itemAtIndex(0))
+                var password = findChild(popup(), "wifiPasswordField")
+                tryCompare(password, "activeFocus", true)
+                keyboardPanel.visible = true
+                wait(50)
+                mouseClick(findChild(popup(), "wifiCancelButton"))
                 tryCompare(popup(), "visible", false)
                 compare(password.activeFocus, false)
             }

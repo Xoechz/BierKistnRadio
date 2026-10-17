@@ -32,6 +32,14 @@ public:
   QString lookupError;
   QString playerError;
   bool invalidLookupReply = false;
+  QString playerPath = QStringLiteral("/org/bluez/hci0/dev_A/player0");
+  bool publishPlayer = true;
+  QList<QDBusMessage> commands;
+  QVariantMap playerProperties{
+      {QStringLiteral("Status"), QStringLiteral("playing")},
+      {QStringLiteral("Track"), QVariantMap{
+           {QStringLiteral("Title"), QStringLiteral("Initial Track")},
+           {QStringLiteral("Duration"), 80000u}}}};
   /// Unused path -> ObjectManager XML; describes the fixture's snapshot signature.
   QString introspect(const QString &) const override {
     return QStringLiteral("<interface name=\"org.freedesktop.DBus.ObjectManager\">"
@@ -48,15 +56,21 @@ public:
       if (!playerError.isEmpty()) {
         connection.send(message.createErrorReply(playerError, QStringLiteral("Mock read failure")));
       } else {
-        connection.send(message.createReply(QVariantMap{
-            {QStringLiteral("Status"), QStringLiteral("playing")},
-            {QStringLiteral("Track"), QVariantMap{
-                 {QStringLiteral("Title"), QStringLiteral("Initial Track")},
-                 {QStringLiteral("Duration"), 80000u}}}}));
+        connection.send(message.createReply(playerProperties));
       }
       return true;
     }
     if (message.member() != QStringLiteral("GetManagedObjects")) {
+      if (message.path() == playerPath &&
+          message.interface() == QStringLiteral("org.bluez.MediaPlayer1") &&
+          message.signature().isEmpty() &&
+          QStringList{QStringLiteral("Play"), QStringLiteral("Pause"),
+                      QStringLiteral("Next"), QStringLiteral("Previous")}
+              .contains(message.member())) {
+        commands.append(message);
+        connection.send(message.createReply());
+        return true;
+      }
       return false;
     }
     if (!lookupError.isEmpty()) {
@@ -79,12 +93,9 @@ public:
       arg.endMapEntry();
     };
     // Deliberately put the player before its Device1 in the snapshot.
-    add(QStringLiteral("/org/bluez/hci0/dev_A/player0"),
-        QStringLiteral("org.bluez.MediaPlayer1"),
-        {{QStringLiteral("Status"), QStringLiteral("playing")},
-         {QStringLiteral("Track"), QVariantMap{{QStringLiteral("Title"),
-                                                QStringLiteral("Initial Track")},
-                                               {QStringLiteral("Duration"), 80000u}}}});
+    if (publishPlayer) {
+      add(playerPath, QStringLiteral("org.bluez.MediaPlayer1"), playerProperties);
+    }
     add(QStringLiteral("/org/bluez/hci0/dev_A"), QStringLiteral("org.bluez.Device1"),
         {{QStringLiteral("Connected"), true},
          {QStringLiteral("Alias"), QStringLiteral("Phone")}});
@@ -358,6 +369,9 @@ private slots:
   void testBluetoothMuteCoversAllConnectedDevices();
   /// Check dump/mute command failures surface.
   void testBluetoothMuteCommandFailure();
+  /// Old lookup/write completions must not act on disconnected/replaced mute intent.
+  void testBluetoothObsoleteMuteCallbacks_data();
+  void testBluetoothObsoleteMuteCallbacks();
   /// Check profile-independent node matching and invalid/missing dump cases.
   void testBluetoothNodeIdFromPwDump();
   /// Check retargeting resets unsupported/stale AVRCP fields.
@@ -369,6 +383,7 @@ private slots:
   /// Check players arriving before their Device1 are deferred then attached.
   void testBluetoothPlayerAddedBeforeDevice();
   /// Exercise real ObjectManager/property signals and BlueZ daemon recovery.
+  void testBluetoothPrivateBusObjectManagerAndProperties_data();
   void testBluetoothPrivateBusObjectManagerAndProperties();
   /// Register Qt Test error-type data rows (void return, no table value returned).
   void testBackgroundDbusReadErrors_data();
@@ -1652,6 +1667,62 @@ void TestControllers::testBluetoothMuteCoversAllConnectedDevices() {
   QCOMPARE(muteCmds.size(), 2);
 }
 
+void TestControllers::testBluetoothObsoleteMuteCallbacks_data() {
+  QTest::addColumn<QString>("reason");
+  QTest::addColumn<bool>("holdLookup");
+  for (const QString &reason : {QStringLiteral("disconnect"), QStringLiteral("removal"),
+                               QStringLiteral("power-off"), QStringLiteral("new-intent")}) {
+    QTest::newRow(qPrintable(reason + QStringLiteral("-lookup"))) << reason << true;
+    QTest::newRow(qPrintable(reason + QStringLiteral("-write"))) << reason << false;
+  }
+}
+
+void TestControllers::testBluetoothObsoleteMuteCallbacks() {
+  QFETCH(QString, reason);
+  QFETCH(bool, holdLookup);
+  BluetoothClient c(QDBusConnection(QStringLiteral("missing-mute-race-bus")));
+  const QString device = QStringLiteral("/org/bluez/hci0/dev_A");
+  const QByteArray dump = R"([{"id":77,"info":{"props":{"api.bluez5.address":"AA:BB"}}}])";
+  QList<std::function<void(const QByteArray &, const QString &)>> pending;
+  int writes = 0;
+  c.setCommandRunnerForTest([&](const QStringList &args, const auto &done) {
+    if (args.first() == QStringLiteral("pw-dump") && !holdLookup) {
+      done(dump, QString());
+    } else {
+      if (args.first() == QStringLiteral("wpctl")) {
+        ++writes;
+      }
+      pending.append(done);
+    }
+  });
+  c.bluezObjectAddedForTest(QStringLiteral("/org/bluez/hci0"),
+      QStringLiteral("org.bluez.Adapter1"), {{QStringLiteral("Powered"), true}});
+  c.bluezObjectAddedForTest(device, QStringLiteral("org.bluez.Device1"),
+      {{QStringLiteral("Connected"), true}, {QStringLiteral("Address"), QStringLiteral("AA:BB")}});
+  c.setMuted(true);
+  QVERIFY(!pending.isEmpty());
+  const auto obsolete = pending;
+  pending.clear();
+  if (reason == QStringLiteral("disconnect")) {
+    c.bluezPropertyChangedForTest(device, QStringLiteral("org.bluez.Device1"),
+        {{QStringLiteral("Connected"), false}});
+  } else if (reason == QStringLiteral("removal")) {
+    c.bluezObjectRemovedForTest(device, QStringLiteral("org.bluez.Device1"));
+  } else if (reason == QStringLiteral("power-off")) {
+    c.bluezPropertyChangedForTest(QStringLiteral("/org/bluez/hci0"),
+        QStringLiteral("org.bluez.Adapter1"), {{QStringLiteral("Powered"), false}});
+  } else {
+    c.setMuted(false);
+  }
+  const int currentWrites = writes;
+  for (const auto &done : obsolete) {
+    done(holdLookup ? dump : QByteArray(),
+         holdLookup ? QString() : QStringLiteral("Object \"77\" not found"));
+  }
+  QCOMPARE(writes, currentWrites);
+  QVERIFY(!c.errorMessage().contains(QStringLiteral("Object \"77\" not found")));
+}
+
 void TestControllers::testBluetoothMuteCommandFailure() {
   BluetoothClient c;
   const QString address = QStringLiteral("AA:BB:CC:DD:EE:FF");
@@ -1676,6 +1747,12 @@ void TestControllers::testBluetoothMuteCommandFailure() {
   failure.clear();
   c.setMuted(true);
   QCOMPARE(c.errorMessage(), QString());
+  c.ensureDiscoverable();
+  const QString unrelatedError = c.errorMessage();
+  QVERIFY(!unrelatedError.isEmpty());
+  c.setMuteEnabled(false);
+  c.setMuted(true);
+  QCOMPARE(c.errorMessage(), unrelatedError); // mute cleanup must not hide other faults
 }
 
 void TestControllers::testBluetoothNodeIdFromPwDump() {
@@ -1775,17 +1852,31 @@ void TestControllers::testBluetoothDeviceWithoutNameIsDetected() {
 void TestControllers::testBluetoothPlayerAddedBeforeDevice() {
   BluetoothClient c;
   const QString device = QStringLiteral("/org/bluez/hci0/dev_A");
-  c.bluezObjectAddedForTest(device + QStringLiteral("/player0"),
+  c.bluezObjectAddedForTest(device + QStringLiteral("/avrcp/player0"),
                             QStringLiteral("org.bluez.MediaPlayer1"),
                             {{QStringLiteral("Track"), QVariantMap{
-                                {QStringLiteral("Title"), QStringLiteral("Early")}}}});
+                                 {QStringLiteral("Title"), QStringLiteral("Early")}}}});
+  c.bluezObjectAddedForTest(device + QStringLiteral("A"),
+                            QStringLiteral("org.bluez.Device1"),
+                            {{QStringLiteral("Connected"), false}});
+  QVERIFY(!c.trackPublished());
   c.bluezObjectAddedForTest(device, QStringLiteral("org.bluez.Device1"),
                             {{QStringLiteral("Connected"), true}});
   QCOMPARE(c.trackTitle(), QStringLiteral("Early"));
   QVERIFY(c.trackPublished());
 }
 
+void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties_data() {
+  QTest::addColumn<bool>("nested");
+  QTest::addColumn<bool>("late");
+  QTest::newRow("direct-snapshot") << false << false;
+  QTest::newRow("nested-snapshot") << true << false;
+  QTest::newRow("nested-late-player") << true << true;
+}
+
 void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties() {
+  QFETCH(bool, nested);
+  QFETCH(bool, late);
   QProcess daemon;
   daemon.start(QStringLiteral("dbus-daemon"),
                {QStringLiteral("--session"), QStringLiteral("--nofork"),
@@ -1797,9 +1888,37 @@ void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties() {
   const QString name = QStringLiteral("bluez-test-%1").arg(
       QUuid::createUuid().toString(QUuid::WithoutBraces));
   QDBusConnection bus = QDBusConnection::connectToBus(address, name);
+  const auto cleanup = qScopeGuard([&]() {
+    QDBusConnection::disconnectFromBus(name);
+    daemon.terminate();
+    daemon.waitForFinished(3000);
+  });
   QVERIFY(bus.isConnected());
   QVERIFY(bus.registerService(QStringLiteral("org.bluez")));
   MockBlueZObjects objects;
+  if (nested) {
+    objects.playerPath = QStringLiteral("/org/bluez/hci0/dev_A/avrcp/player0");
+  }
+  objects.publishPlayer = !late;
+  // Match the S25 FE's actual a{sv} payload, including a typed Device object path.
+  objects.playerProperties = {
+      {QStringLiteral("Name"), QStringLiteral("Media Player")},
+      {QStringLiteral("Type"), QStringLiteral("Audio")},
+      {QStringLiteral("Subtype"), QStringLiteral("Audio Book")},
+      {QStringLiteral("Position"), 148505u},
+      {QStringLiteral("Status"), QStringLiteral("playing")},
+      {QStringLiteral("Repeat"), QStringLiteral("off")},
+      {QStringLiteral("Shuffle"), QStringLiteral("alltracks")},
+      {QStringLiteral("Track"), QVariantMap{
+          {QStringLiteral("Title"), QStringLiteral("Apocalypso")},
+          {QStringLiteral("TrackNumber"), 1u},
+          {QStringLiteral("NumberOfTracks"), 1u},
+          {QStringLiteral("Duration"), 237000u},
+          {QStringLiteral("Album"), QStringLiteral("Der")},
+          {QStringLiteral("Artist"), QStringLiteral("Wizo")},
+          {QStringLiteral("Genre"), QString()}}},
+      {QStringLiteral("Device"), QVariant::fromValue(
+          QDBusObjectPath(QStringLiteral("/org/bluez/hci0/dev_A")))}};
   QVERIFY(bus.registerVirtualObject(QStringLiteral("/"), &objects,
                                     QDBusConnection::SubPath));
 
@@ -1807,12 +1926,43 @@ void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties() {
     BluetoothClient client(bus);
     QTRY_COMPARE_WITH_TIMEOUT(client.connectedDeviceName(),
                               QStringLiteral("Phone"), 3000);
+    if (late) {
+      QVERIFY(!client.trackPublished());
+      QVERIFY(!client.statusPublished());
+      objects.publishPlayer = true;
+      QDBusMessage added = QDBusMessage::createSignal(
+          QStringLiteral("/"), QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+          QStringLiteral("InterfacesAdded"));
+      added << QDBusObjectPath(objects.playerPath)
+            << QVariant::fromValue(QMap<QString, QVariantMap>{
+                {QStringLiteral("org.bluez.MediaPlayer1"), objects.playerProperties}});
+      QVERIFY(bus.send(added));
+    }
     QTRY_COMPARE_WITH_TIMEOUT(client.trackTitle(),
-                              QStringLiteral("Initial Track"), 3000);
-    QCOMPARE(client.duration(), qint64(80000));
+                              QStringLiteral("Apocalypso"), 3000);
+    QCOMPARE(client.trackArtist(), QStringLiteral("Wizo"));
+    QCOMPARE(client.trackAlbum(), QStringLiteral("Der"));
+    QCOMPARE(client.duration(), qint64(237000));
+    QCOMPARE(client.position(), qint64(148505));
+    QVERIFY(client.trackPublished());
+    QVERIFY(client.statusPublished());
+    QVERIFY(client.positionPublished());
+    QVERIFY(client.isBluetoothPlaying());
     QVERIFY(client.adapterPowered());
 
-    const QString playerPath = QStringLiteral("/org/bluez/hci0/dev_A/player0");
+    client.pause();
+    client.play();
+    client.next();
+    client.previous();
+    QTRY_COMPARE_WITH_TIMEOUT(objects.commands.size(), 4, 3000);
+    const QStringList methods{QStringLiteral("Pause"), QStringLiteral("Play"),
+                              QStringLiteral("Next"), QStringLiteral("Previous")};
+    for (int i = 0; i < methods.size(); ++i) {
+      QCOMPARE(objects.commands.at(i).path(), objects.playerPath);
+      QCOMPARE(objects.commands.at(i).member(), methods.at(i));
+    }
+
+    const QString playerPath = objects.playerPath;
     QDBusMessage changed = QDBusMessage::createSignal(
         playerPath, QStringLiteral("org.freedesktop.DBus.Properties"),
         QStringLiteral("PropertiesChanged"));
@@ -1837,6 +1987,24 @@ void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties() {
     QVERIFY(bus.send(invalidated));
     QTRY_VERIFY_WITH_TIMEOUT(!client.trackPublished(), 3000);
 
+    QDBusMessage removed = QDBusMessage::createSignal(
+        QStringLiteral("/"), QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+        QStringLiteral("InterfacesRemoved"));
+    removed << QDBusObjectPath(playerPath)
+            << QStringList{QStringLiteral("org.bluez.MediaPlayer1")};
+    QVERIFY(bus.send(removed));
+    QTRY_VERIFY_WITH_TIMEOUT(!client.statusPublished(), 3000);
+    QVERIFY(!client.positionPublished());
+    QDBusMessage readded = QDBusMessage::createSignal(
+        QStringLiteral("/"), QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+        QStringLiteral("InterfacesAdded"));
+    readded << QDBusObjectPath(playerPath)
+            << QVariant::fromValue(QMap<QString, QVariantMap>{
+                {QStringLiteral("org.bluez.MediaPlayer1"), objects.playerProperties}});
+    QVERIFY(bus.send(readded));
+    QTRY_COMPARE_WITH_TIMEOUT(client.trackTitle(), QStringLiteral("Apocalypso"), 3000);
+    QVERIFY(client.statusPublished());
+
     QDBusMessage disconnected = QDBusMessage::createSignal(
         QStringLiteral("/org/bluez/hci0/dev_A"),
         QStringLiteral("org.freedesktop.DBus.Properties"),
@@ -1846,6 +2014,8 @@ void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties() {
                  << QStringList();
     QVERIFY(bus.send(disconnected));
     QTRY_VERIFY_WITH_TIMEOUT(!client.hasConnectedDevice(), 3000);
+    QVERIFY(!client.trackPublished());
+    QVERIFY(!client.statusPublished());
 
     QVERIFY(bus.unregisterService(QStringLiteral("org.bluez")));
     QTRY_VERIFY_WITH_TIMEOUT(!client.adapterPowered(), 3000);
@@ -1853,7 +2023,7 @@ void TestControllers::testBluetoothPrivateBusObjectManagerAndProperties() {
     QTRY_COMPARE_WITH_TIMEOUT(client.connectedDeviceName(),
                               QStringLiteral("Phone"), 3000);
     QTRY_COMPARE_WITH_TIMEOUT(client.trackTitle(),
-                              QStringLiteral("Initial Track"), 3000);
+                              QStringLiteral("Apocalypso"), 3000);
   }
 
   bus.unregisterObject(QStringLiteral("/"));

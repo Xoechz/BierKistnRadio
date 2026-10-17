@@ -49,13 +49,16 @@ Source: [tst_controllers.cpp](../tests/tst_controllers.cpp). Every `TestControll
 | `TestControllers::testBluetoothMuteDiscoversNodeAndMutes()` | Checks address-based PipeWire lookup and mute argv. |
 | `TestControllers::testBluetoothUnmuteIssuesSetMuteZero()` | Checks active-node unmute argv. |
 | `TestControllers::testBluetoothMuteCoversAllConnectedDevices()` | Checks true mute intent dispatches for every connected address. |
-| `TestControllers::testBluetoothMuteCommandFailure()` | Checks lookup/mute command errors surface. |
+| `TestControllers::testBluetoothMuteCommandFailure()` | Checks current mute command failure/recovery and that mute disable/intent cleanup preserves unrelated errors. |
+| `TestControllers::testBluetoothObsoleteMuteCallbacks_data()` | Supplies held lookup/write cases for disconnect, removal, adapter power-off, and superseding intent. |
+| `TestControllers::testBluetoothObsoleteMuteCallbacks()` | Replays obsolete lookup/write completions; asserts no late wpctl dispatch or stale-node error after invalidation. |
 | `TestControllers::testBluetoothNodeIdFromPwDump()` | Checks address matching, profile-independent names, malformed/missing node cases. |
 | `TestControllers::testBluetoothAvrcpResetsOnDeviceChange()` | Checks retargeting clears unsupported/stale fields. |
 | `TestControllers::testBluetoothRetargetsPlayerAfterTakeover()` | Checks takeover winner's player/metadata/status replaces previous target. |
 | `TestControllers::testBluetoothDeviceWithoutNameIsDetected()` | Checks unnamed connected devices still count and use fallback display name. |
-| `TestControllers::testBluetoothPlayerAddedBeforeDevice()` | Checks deferred-player handling. |
-| `TestControllers::testBluetoothPrivateBusObjectManagerAndProperties()` | Exercises real BlueZ snapshot/signals/paths and daemon recovery on private bus. |
+| `TestControllers::testBluetoothPlayerAddedBeforeDevice()` | Checks deferred nested-player handling and ignores a similarly named unrelated device. |
+| `TestControllers::testBluetoothPrivateBusObjectManagerAndProperties_data()` | Supplies direct snapshot, nested snapshot, and late nested-player cases. |
+| `TestControllers::testBluetoothPrivateBusObjectManagerAndProperties()` | Exercises typed BlueZ snapshots/signals with the S25 FE's observed Track/Status/Position/Device payload; verifies metadata/publication, exact AVRCP command targets, live updates/invalidation, player removal/reappearance, disconnect clearing, and daemon recovery. Nested cases reproduced T45 before the fix. |
 | `TestControllers::testBackgroundDbusReadErrors_data()` | Registers error-type data rows for the next slot; returns no table value directly. |
 | `TestControllers::testBackgroundDbusReadErrors()` | Consumes Qt Test data rows and checks read-fault classification/recovery. |
 | `TestControllers::testDisconnectedBusErrors()` | Checks missing bus is surfaced rather than silent. |
@@ -85,7 +88,7 @@ Source: [tst_controllers.cpp](../tests/tst_controllers.cpp). Every `TestControll
 | Function | Parameters | Return | Purpose / effects |
 | --- | --- | --- | --- |
 | `MockBlueZObjects::introspect(path)` | Object path, unnamed/unused | `QString`: ObjectManager XML | Supplies snapshot signature for private-bus fixture. |
-| `MockBlueZObjects::handleMessage(message, connection)` | Incoming D-Bus message; replying connection | `bool`: true for handled GetAll/snapshot, false for other methods | Replies with configured errors/malformed payload or typed BlueZ tree/player properties. |
+| `MockBlueZObjects::handleMessage(message, connection)` | Incoming D-Bus message; replying connection | `bool`: true for handled GetAll/snapshot or valid player controls, false otherwise | Replies with configured errors/malformed payload or typed BlueZ tree/player properties; configurable player path/presence/properties support nested/late discovery. Records Play/Pause/Next/Previous only for the configured path, MediaPlayer1 interface and empty signature. |
 | MockBlueZObjects local `add(path, interface, props)` lambda | Object path; interface name; property dictionary | `void` | Appends one typed ObjectManager map entry to the captured QDBusArgument. |
 | `MockMprisPlayer::introspect(path)` | Object path, unused | `QString`: Properties/Player XML | Describes GetAll/PropertiesChanged and transport/SetPosition signatures. |
 | `MockMprisPlayer::handleMessage(message, connection)` | Incoming call; reply connection | `bool`: handled status | Records controls, replies with mock metadata/state/errors, or stores delayed GetAll requests for stale-reply tests. |
@@ -127,6 +130,8 @@ Source: [tst_source_switching.cpp](../tests/tst_source_switching.cpp).
 | `TestSourceSwitching::init()` | None | `void` | Resets service/adapter, hold/error flags, recorded commands and pending reads before each test. |
 | `TestSourceSwitching::boot(playback)` | Facade reference under test | `void` | Waits/asserts ready Spotify waiting without MPRIS/phone or source error. |
 | `TestSourceSwitching::bootAndOrderedTransitions()` | None | `void` | Checks production 10 s deadline and both command orders, with no redundant boot command. |
+| `TestSourceSwitching::shutdownInvalidatesSupplementalMute_data()` | None | `void` | Supplies held PipeWire lookup and held mute-write cases. |
+| `TestSourceSwitching::shutdownInvalidatesSupplementalMute()` | None | `void` | Uses private-bus lifecycle plus deferred command runner to verify shutdown issues no mute commands, obsolete completions cannot dispatch wpctl/report stale errors, ready Bluetooth re-enables muting, genuine failures remain visible, and the next Spotify switch clears obsolete mute errors. |
 | `TestSourceSwitching::shutdownMustBeObserved()` | None | `void` | Holds outgoing state despite successful acknowledgement and verifies incoming backend cannot start yet. |
 | `TestSourceSwitching::permissionFailureAndManualRetry()` | None | `void` | Checks denial/retained selection, no passive retry, explicit recovery, and opposite-side shutdown denial. |
 | `TestSourceSwitching::timeoutAndLateRecovery()` | None | `void` | Uses shorter injected deadline to check one issued startup, error, and later observed readiness without another command. |
@@ -239,7 +244,9 @@ Source: [tst_WifiDialog.qml](../tests/tst_WifiDialog.qml).
 | `onScreen(item, height)` | Visual item; allowed vertical extent in pixels | `undefined` | Maps into window coordinates and asserts horizontal/vertical bounds with one-pixel tolerance. |
 | `openFromButton()` | None | `undefined` | Clicks real sidebar button, waits for opened popup, checks overlay parent and on-screen content/Cancel. |
 | `test_actualButtonAndRepeatedCloseBothThemes()` | None | `undefined` | Checks repeated open/scan/list/Cancel sequences in both themes. |
-| `test_passwordKeyboardGeometryAndActivationResult()` | None | `undefined` | Clicks secured delegate, checks focus, simulates 280 px keyboard space, validates controls/password forwarding, failure persistence, matching-only close and focus removal. |
+| `test_passwordKeyboardGeometryAndActivationResult_data()` | None | Theme/height data rows | Exercises dark/light themes with keyboard tops at 280 and 250 px. |
+| `test_passwordKeyboardGeometryAndActivationResult(data)` | Theme and keyboard top | `undefined` | Clicks secured delegate, checks focus, drives an opaque overlay panel through the sidebar's actual geometry binding (without overriding popup height), checks password/error/actions above it, types credentials and clicks Connect, verifies failure persistence, panel hide/show resizing, matching-only close and focus removal. |
+| `test_cancelWhileKeyboardOpen()` | None | `undefined` | Selects a secured network, shows the panel, clicks reachable Cancel and verifies popup dismissal/focus removal. |
 | `test_escapeClearsModalInputBlock()` | None | `undefined` | Dismisses by Escape and reopens through underlying button. |
 
 ### Theme

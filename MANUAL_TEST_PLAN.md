@@ -83,6 +83,7 @@ Stop monitors with Ctrl+C. They should show shutdown state **before** the opposi
 2. Check nearby SSIDs, signal bars, and the connected-network checkmark. Tap Refresh; no duplicated rows or repeated prompts.
 3. Tap Cancel. Confirm dimming disappears and the underlying volume/theme/source controls work. Repeat open/close three times, including in light mode.
 4. Select the secured test network. Expect the password field to receive focus and the on-screen keyboard to appear above the popup. The field, Connect, and Cancel remain visible/reachable. Try a long SSID and a longer error message if available.
+   T44 regression: password and action buttons should appear above the scrolling network list. With the real keyboard open, the entire popup should fit above its top edge in both themes; type and tap Connect/Cancel without first hiding the keyboard. Hiding/showing the keyboard should expand/shrink the available dialog area cleanly.
 5. Enter an incorrect password and tap Connect. The dialog remains open while connecting, then displays an error or bounded connection timeout. It must not close merely because the activation call was accepted.
 6. Retry with the correct password. Only after the selected SSID actually connects should the popup and keyboard close; the sidebar updates to that SSID.
 7. Reopen the dialog, select a secured network, then Cancel while the keyboard is open. Both keyboard and dimming disappear. If a hardware keyboard is available, verify Escape also dismisses the dialog.
@@ -138,6 +139,7 @@ Find the dynamic `org.mpris.MediaPlayer2.spotifyd.*` name in the bus list; it is
 5. Expect spotifyd stopped, `Powered=true`, and local A2DP Sink UUID `0000110b-0000-1000-8000-00805f9b34fb`. With no connected phone, verify discoverability still works after **four minutes**.
 6. Pair/connect as described in M05, then play Bluetooth audio. Tap Spotify.
 7. Confirm `Powered=false` is observed and the phone disconnects **before** `StartUnit("spotifyd.service", "replace")`. Spotify Connect returns, and the overlay clears when the service runs. The app must not automatically issue Play or reconnect the phone.
+   T46 regression: switching away from actively streaming Bluetooth must not leave “Bluetooth audio mute failed: Object … not found” on screen. Repeat reconnect/play/switch cycles and check delayed node-removal callbacks do not introduce an error after Spotify is ready. Genuine failures from current Bluetooth operations must still be visible.
 8. Repeat both directions five times. Reconnection initiated by the phone is separate from the app initiating a connection; source selection must never change merely because metadata or a phone connection appears.
 
 **Pass:** ordered disable-before-enable, correct readiness, bounded modal loading, no automatic Play, and no overlapping sources. Covers T29/T30/T31.
@@ -170,6 +172,7 @@ Use a previously unpaired Phone A. Remove the existing bond from both phone and 
 
 1. Connect Phone A in Bluetooth mode and play Spotify/audio on the phone. Expect the correct connected device name; switching to Bluetooth itself must not start playback.
 2. If BlueZ publishes a remote player, check title, artist, album, status, duration, and position against the phone. The progress bar is passive and cannot seek. AVRCP buttons are shown only while status is available.
+   T45 regression: repeat with the S25 FE / Android 16 playing Spotify. A nested `dev_*/avrcp/playerN` must be associated with the connected phone just like a direct `dev_*/playerN`; the published fields must replace “No metadata available”, and published status must reveal transport controls. Verify disconnect/reconnect does not leave stale data or lose the player.
 3. Try Play/Pause, Previous, and Next. Unsupported AVRCP features may be unavailable, but permission/operation errors must be visible.
 4. Disconnect the phone. Remain in Bluetooth waiting, with no stale track/transport data or automatic switch to Spotify.
 5. If metadata is missing, record the actual bus boundary:

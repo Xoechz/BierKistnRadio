@@ -13,6 +13,7 @@ PlaybackController::PlaybackController(const QDBusConnection &sessionBus,
     : QObject(parent) {
   m_spotify = new SpotifyClient(sessionBus, this);
   m_bluetooth = new BluetoothClient(systemBus, this);
+  m_bluetooth->setMuteEnabled(false);
   m_service = new SpotifyServiceClient(sessionBus, this);
   m_releaseDates = new ReleaseDateClient(this);
 
@@ -174,7 +175,9 @@ void PlaybackController::beginTransition(bool bluetooth) {
   m_incomingIssued = false;
   m_commandPending = false;
   m_bluetooth->setPairingEnabled(false);
-  // Supplemental silence during shutdown; readiness never relies on this.
+  // Adapter shutdown is the exclusivity boundary. Do not race disappearing
+  // PipeWire nodes with supplemental mute work from this or the previous source.
+  m_bluetooth->setMuteEnabled(false);
   m_bluetooth->setMuted(true);
   m_transitionTimer.start();
   refreshPlaybackState();
@@ -293,12 +296,14 @@ void PlaybackController::observeSource() {
   if (ready) {
     m_sourceError.clear();
     m_bluetooth->setPairingEnabled(m_bluetoothSelected);
+    m_bluetooth->setMuteEnabled(m_bluetoothSelected);
     m_bluetooth->setMuted(!m_bluetoothSelected);
     if (m_bluetoothSelected && !m_bluetooth->hasConnectedDevice()) {
       m_bluetooth->ensureDiscoverable();
     }
   } else {
     m_bluetooth->setPairingEnabled(false);
+    m_bluetooth->setMuteEnabled(false);
     m_bluetooth->setMuted(true);
     if (m_sourceError.isEmpty()) {
       m_sourceError = !m_service->errorMessage().isEmpty() ? m_service->errorMessage()
