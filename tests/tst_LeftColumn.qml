@@ -18,6 +18,7 @@ TestCase {
     QtObject {
         id: bluetooth
         property string connectedDeviceName: "Phone"
+        property bool muted: false
         property bool trackPublished: true
         property string trackTitle: ""
         property string trackArtist: "Artist"
@@ -46,7 +47,7 @@ TestCase {
 
         LeftColumn {
             id: leftColumn
-            width: 250
+            width: Theme.metadataWidth
             height: parent.height - Theme.statusBarHeight
             playback: facade
         }
@@ -65,6 +66,19 @@ TestCase {
         facade.sourceError = ""
         facade.switching = false
         facade.retries = 0
+        facade.releaseDate = "2024-01-01"
+    }
+
+    // No arguments; verify full and partial dates keep the precision MusicBrainz supplied.
+    function test_releaseDatePresentation() {
+        var date = findChild(leftColumn, "releaseDateLabel")
+        facade.releaseDate = "1979-11-17"
+        compare(date.text, "17.11.1979")
+        verify(date.visible)
+        facade.releaseDate = "1979"
+        compare(date.text, "1979")
+        facade.releaseDate = "Release Date unknown"
+        verify(!date.visible)
     }
 
     // No arguments; returns undefined. Restore shared dark theme for later cases.

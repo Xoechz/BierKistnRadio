@@ -63,7 +63,8 @@ TestCase {
 
         CenterColumn {
             id: center
-            anchors.fill: parent
+            width: window.width - Theme.metadataWidth - Theme.volumeRailWidth
+            height: window.height - Theme.statusBarHeight
             playback: facade
             artCache: fakeArtCache
         }
@@ -119,6 +120,20 @@ TestCase {
         compare(facade.nexts, 1)
         compare(facade.previouses, 1)
         compare(facade.pauses, 1)
+    }
+
+    // No arguments; ensure changing control visibility cannot resize or move artwork.
+    function test_fixedArtworkAcrossSources() {
+        var area = cover()
+        var origin = area.mapToItem(center, 0, 0)
+        for (var state of [PlaybackController.SpotifyActive, PlaybackController.BluetoothWaiting,
+                           PlaybackController.BluetoothActive]) {
+            facade.playbackState = state
+            waitForRendering(center)
+            compare(area.width, 400)
+            compare(area.height, 400)
+            compare(area.mapToItem(center, 0, 0), origin)
+        }
     }
 
     // No arguments; returns undefined. Assert BT Status/source gates and routed gesture counts.

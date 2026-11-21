@@ -48,7 +48,7 @@ Single full-screen three-column layout with a persistent status bar. No view swi
 
 - Height: 48px. Three regions: clock (left), Source toggle (center), Reboot/Shutdown icons (right).
 - **Clock:** current time, left-aligned.
-- **Source toggle:** "Spotify ○══○ Bluetooth" — tapping it switches between Spotify and Bluetooth.
+- **Source toggle:** two segments; tapping the inactive source selects it. Spotify is green when selected, Bluetooth blue.
   - Spotify → observes Bluetooth powered off (disconnecting phones), then starts the user's `spotifyd.service`.
   - Bluetooth → observes `spotifyd.service` stopped, then powers on Bluetooth and waits for its local A2DP Sink UUID.
   - Shows "…" from `PlaybackController.switching`; one backend-owned 10-second deadline covers the whole transition. `SourceTransitionOverlay` covers the entire touch UI with a translucent gray modal loader. Failures retain the requested source with `sourceError` and manual Retry in the Left Column.
@@ -63,18 +63,15 @@ Three-column layout driven by `PlaybackController.playbackState` — a five-stat
 ┌──────────┬──────────────────────────┬──────────────┐
 │  Status Bar (clock | toggle | power)               │
 ├──────────┼──────────────────────────┼──────────────┤
-│          │                          │  Right       │
-│  Left    │  Center                  │  Sidebar     │
-│  Column  │  Column                  │              │
-│  Track   │  Album Art (400×400)     │  volume      │
-│  Artist  │                          │  dark mode   │
-│  Album   │  Progress / Scrubber     │  BT status   │
-│  (state) │  Transport               │  Wi-Fi status│
-│          │                          │  Wifi Settings│
+│ Metadata │                          │ Volume %     │
+│ or hints │       Album Art          │ Volume slider│
+│          │       (400×400)          │              │
+│ BT / WiFi│                          │ Mute         │
+│ Settings │   Progress / Transport   │ Dark mode    │
 └──────────┴──────────────────────────┴──────────────┘
 ```
 
-#### Left Column (metadata, ~250px wide)
+#### Left Column (metadata and connectivity, 426px wide)
 
 Content depends on playback state:
 
@@ -86,11 +83,13 @@ Content depends on playback state:
   - If `trackPublished`: Track title, Artist, Album (word-wrap max 3 lines then elide). Title suffixed "via \<device name\>".
   - If `!trackPublished`: "Controlled by \<device name\>" as title, "No metadata available" as subtitle.
 
-#### Center Column (album art + playback)
+Bluetooth status, Wi-Fi status and Wi-Fi Settings are anchored below the metadata. Missing metadata fields and captions are hidden. Full dates display as DD.MM.YYYY; partial dates retain their precision.
+
+#### Center Column (album art + playback, 492px wide)
 
 - **Album art:** 400×400 `Image` with `fillMode: Image.PreserveAspectFit`. Shows `spotify.artUrl` (SpotifyActive) or fallback SVG (`qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg`) when `artUrl` is empty. `asynchronous: true`. Always shown (fallback fills the space in non-active states).
 - **Progress scrubber** (below album art):
-  - `SpotifyActive`: interactive `Slider` with thumb. Time labels flanking: current timestamp (left, `m:ss`) and total duration (right, `m:ss`). `onMoved` calls `PlaybackController.seek(value * 1000)` (slider in seconds, API in milliseconds).
+  - `SpotifyActive`: interactive `Slider` with thumb. Time labels below the slider: current timestamp (left, `m:ss`) and total duration (right, `m:ss`). Releasing the slider calls `PlaybackController.seek` once (slider in seconds, API in milliseconds).
   - `BluetoothActive` + `positionPublished` + `duration > 0`: passive non-interactive progress bar (no thumb), time labels (`m:ss` current / total). No seek.
   - `BluetoothActive` + `positionPublished` + `duration <= 0`: passive bar, no time labels.
   - All other states: no progress element.
@@ -99,15 +98,9 @@ Content depends on playback state:
   - `BluetoothActive` + `statusPublished`: Play/Pause + Next + Previous buttons (best-effort AVRCP). Play/Pause glyph reflects `isBluetoothPlaying`.
   - All other states: no transport.
 
-#### Right Sidebar (~250px wide, always visible)
+#### Right Sidebar (106px wide, always visible)
 
-Top-to-bottom, source-independent:
-
-1. **Volume slider** — vertical at the top in its existing left position. Volume: 0–150%, label shows current %, tick mark at 100%. Sidebar layout redesign is pending.
-2. **Dark mode toggle** (small switch, sun/moon icon)
-3. **Bluetooth status** — two-line block: "Bluetooth" label + status text (`BluetoothWaiting`: "Discoverable", `BluetoothActive`: "Connected to \<name\>", unavailable: "Not available")
-4. **Wi-Fi status** — two-line block: "Wi-Fi" label + status text ("Connected to \<SSID\>" or "Not connected")
-5. **"Wifi Settings" button** — opens the Wi-Fi dialog (§4.D)
+From top to bottom: volume percentage, vertical 0–150% slider with a 100% tick, mute button (zero/restore previous level), and dark mode switch.
 
 ### C. Takeover Dialog (modal overlay)
 
@@ -122,7 +115,7 @@ When a second phone connects while one is already playing (`PlaybackController.b
 
 ### D. Wi-Fi Dialog (popup overlay)
 
-Tapping "Wifi Settings" in the right sidebar opens a dialog:
+Tapping "Wi-Fi Settings" in the left column opens a dialog:
 
 - Auto-scans on open (calls `WifiController.scan()`). Manual refresh button at top.
 - Scrollable SSID list from `WifiController.networks`. Each row: SSID name + signal strength bars (▂▄▆█ mapping: 0–25% → ▂, 25–50% → ▄, 50–75% → ▆, 75–100% → █). Connected SSID gets a checkmark.
@@ -175,8 +168,8 @@ Disable and observe the outgoing backend before enabling the requested one. Boot
 │   ├── Main.qml             # root window, frameless fullscreen, three-column layout
 │   ├── Theme.qml            # singleton: colors, sizes, fonts, Material theme
 │   ├── StatusBar.qml        # persistent top bar (clock, source toggle, reboot/shutdown)
-│   ├── RightSidebar.qml     # volume, dark mode, BT/Wi-Fi status, Wifi Settings btn
-│   ├── LeftColumn.qml       # metadata display (state-dependent: track/artist/album/error/hint)
+│   ├── RightSidebar.qml     # volume, mute, dark mode
+│   ├── LeftColumn.qml       # metadata, source errors/hints, connectivity and Wi-Fi Settings
 │   ├── CenterColumn.qml     # album art + scrubber/progress + transport
 │   ├── WifiDialog.qml       # popup: SSID list, signal bars, password OSK, connect
 │   ├── TakeoverDialog.qml   # modal: keep current / switch to new, 10s auto-select

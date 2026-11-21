@@ -85,7 +85,7 @@ Stop monitors with Ctrl+C. They should show shutdown state **before** the opposi
 4. Select the secured test network. Expect the password field to receive focus and the on-screen keyboard to appear above the popup. The field, Connect, and Cancel remain visible/reachable. Try a long SSID and a longer error message if available.
    T44 regression: password and action buttons should appear above the scrolling network list. With the real keyboard open, the entire popup should fit above its top edge in both themes; type and tap Connect/Cancel without first hiding the keyboard. Hiding/showing the keyboard should expand/shrink the available dialog area cleanly.
 5. Enter an incorrect password and tap Connect. The dialog remains open while connecting, then displays an error or bounded connection timeout. It must not close merely because the activation call was accepted.
-6. Retry with the correct password. Only after the selected SSID actually connects should the popup and keyboard close; the sidebar updates to that SSID.
+6. Retry with the correct password. Only after the selected SSID actually connects should the popup and keyboard close; the lower-left Wi-Fi status updates to that SSID.
 7. Reopen the dialog, select a secured network, then Cancel while the keyboard is open. Both keyboard and dimming disappear. If a hardware keyboard is available, verify Escape also dismisses the dialog.
 8. Toggle the test hotspot off/on and refresh. Known and newly scanned networks should return. An open network, if available, connects without asking for a password.
 
@@ -107,7 +107,7 @@ journalctl -b -u NetworkManager.service --since '-5 minutes' --no-pager
 3. Exercise Previous, Next, Play/Pause, and seeking. Tap the cover for Play/Pause; swipe left/right for Next/Previous. A swipe must not also toggle Play/Pause.
 4. Skip several tracks quickly. No artwork or release date from a previous track should remain attached to the new track after its lookup resolves. Revisit a cover to check cache reuse.
 5. Try a track with a long title, including **“Good Vibrations - Remastered”** if available, and a very long word/device name. Titles wrap or elide within three lines and do not cover Artist/Album.
-6. Check release-date lookup: a known unambiguous result shows a date; unknown/ambiguous results show **“Release Date unknown”**. Loss of MusicBrainz connectivity shows **“No Connection to Musicbrainz for release dates”**, without freezing touch input. Network failure is not evidence of an unknown release date.
+6. Check release-date lookup: a known unambiguous result shows a date; unknown/ambiguous results hide the date and its caption. Loss of MusicBrainz connectivity shows **“No Connection to Musicbrainz for release dates”**, without freezing touch input. Network failure is not evidence of an unknown release date.
 7. With an uncached artwork request and internet temporarily unavailable, expect fallback artwork and a responsive UI. Restore the network before continuing.
 
 Diagnostics:

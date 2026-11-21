@@ -17,11 +17,14 @@ Item {
             property string connectedDeviceName: ""
             property bool adapterPowered: false
             property bool muted: true
+            property bool trackPublished: false
             property string errorMessage: ""
         }
         QtObject {
             id: fakePlayback
             property int playbackState: PlaybackController.SpotifyWaiting
+            property QtObject spotify: QtObject { property string errorMessage: "" }
+            property string releaseDate: ""
             property QtObject bluetooth: bluetooth
         }
 
@@ -74,11 +77,10 @@ Item {
             color: "black"
         }
 
-        RightSidebar {
-            id: sidebar
-            x: window.width - width
+        LeftColumn {
+            id: leftColumn
             y: Theme.statusBarHeight
-            width: 250
+            width: Theme.metadataWidth
             height: window.height - y
             wifiController: wifi
             playback: fakePlayback
@@ -91,7 +93,7 @@ Item {
             when: window.visible
             // No arguments; returns named WifiDialog QObject (null if absent).
             function popup() {
-                return findChild(sidebar, "wifiDialog")
+                return findChild(leftColumn, "wifiDialog")
             }
             // No arguments; returns undefined. Activate test window and reset Wi-Fi/keyboard space.
             function init() {
@@ -117,15 +119,15 @@ Item {
                 verify(point.x >= 0 && point.x + item.width <= window.width + 1, item.objectName + " outside horizontal bounds: " + point.x)
                 verify(point.y >= 0 && point.y + item.height <= height + 1, item.objectName + " outside vertical bounds: " + point.y)
             }
-            // No arguments; returns undefined. Click actual sidebar button and assert overlay
+            // No arguments; returns undefined. Click actual leftColumn button and assert overlay
             // parent, opened state and reachable content/Cancel rather than opening directly.
             function openFromButton() {
-                var button = findChild(sidebar, "wifiSettingsButton")
+                var button = findChild(leftColumn, "wifiSettingsButton")
                 verify(button !== null)
                 onScreen(button, window.height)
                 mouseClick(button)
                 tryCompare(popup(), "opened", true)
-                compare(popup().parent, sidebar.Overlay.overlay)
+                compare(popup().parent, leftColumn.Overlay.overlay)
                 onScreen(popup().contentItem, window.height)
                 onScreen(findChild(popup(), "wifiCancelButton"), window.height)
             }
@@ -153,7 +155,7 @@ Item {
                     { tag: "light-250", dark: false, top: 250 }
                 ]
             }
-            // data: theme/keyboard top. Returns undefined. Exercise sidebar-to-popup
+            // data: theme/keyboard top. Returns undefined. Exercise leftColumn-to-popup
             // panel geometry, reachable input/actions and matching-only activation close.
             function test_passwordKeyboardGeometryAndActivationResult(data) {
                 Theme.darkMode = data.dark

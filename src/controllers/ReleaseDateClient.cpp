@@ -18,7 +18,8 @@ const QString kNoConnection =
     QStringLiteral("No Connection to Musicbrainz for release dates");
 constexpr qsizetype kMaxResponseBytes = 1024 * 1024;
 
-/// @param text Literal title/artist. @return Text with Lucene metacharacters escaped.
+/// @param text Literal title/artist. @return Text with Lucene metacharacters
+/// escaped.
 QString escapeLucene(QString text) {
   // Quotes, backslashes and Lucene operators in titles must be literal.
   const QString special = QStringLiteral("+-!(){}[]^\"~*?:\\/|&");
@@ -40,13 +41,15 @@ QString validDate(const QString &text) {
   if (!pattern.match(text).hasMatch()) {
     return {};
   }
-  const QString full = text.size() == 4 ? text + QStringLiteral("-01-01")
-                       : text.size() == 7 ? text + QStringLiteral("-01") : text;
+  const QString full = text.size() == 4   ? text + QStringLiteral("-01-01")
+                       : text.size() == 7 ? text + QStringLiteral("-01")
+                                          : text;
   return QDate::fromString(full, Qt::ISODate).isValid() ? text : QString();
 }
 
-/// @param body Recording-search JSON bytes. @return Date or unknown/no-connection sentinel.
-/// Requires exactly one recording; malformed JSON is a connection/response failure.
+/// @param body Recording-search JSON bytes. @return Date or
+/// unknown/no-connection sentinel. Requires exactly one recording; malformed
+/// JSON is a connection/response failure.
 QString parseDate(const QByteArray &body) {
   QJsonParseError error;
   const QJsonDocument json = QJsonDocument::fromJson(body, &error);
@@ -54,22 +57,26 @@ QString parseDate(const QByteArray &body) {
     return kNoConnection;
   }
   const QJsonObject root = json.object();
-  const QJsonArray recordings = root.value(QStringLiteral("recordings")).toArray();
+  const QJsonArray recordings =
+      root.value(QStringLiteral("recordings")).toArray();
   if (root.value(QStringLiteral("count")).toInt(-1) != 1 ||
       recordings.size() != 1) {
     return kUnknown;
   }
-  const QString date = validDate(recordings.first().toObject()
-                                     .value(QStringLiteral("first-release-date"))
-                                     .toString());
+  const QString date =
+      validDate(recordings.first()
+                    .toObject()
+                    .value(QStringLiteral("first-release-date"))
+                    .toString());
   return date.isEmpty() ? kUnknown : date;
 }
 } // namespace
 
 ReleaseDateClient::ReleaseDateClient(QObject *parent)
-    : ReleaseDateClient(new QNetworkAccessManager,
-                        QUrl(QStringLiteral("https://musicbrainz.org/ws/2/recording/")),
-                        parent) {
+    : ReleaseDateClient(
+          new QNetworkAccessManager,
+          QUrl(QStringLiteral("https://musicbrainz.org/ws/2/recording/")),
+          parent) {
   m_manager->setParent(this);
 }
 
@@ -78,7 +85,8 @@ ReleaseDateClient::ReleaseDateClient(QNetworkAccessManager *manager,
     : QObject(parent), m_manager(manager), m_endpoint(endpoint) {
   m_dispatchTimer.setSingleShot(true);
   m_dispatchTimer.setTimerType(Qt::PreciseTimer);
-  connect(&m_dispatchTimer, &QTimer::timeout, this, &ReleaseDateClient::dispatch);
+  connect(&m_dispatchTimer, &QTimer::timeout, this,
+          &ReleaseDateClient::dispatch);
 }
 
 QString ReleaseDateClient::releaseDate() const { return m_releaseDate; }
@@ -98,8 +106,19 @@ void ReleaseDateClient::clearTrack() {
   setReleaseDate({});
 }
 
-void ReleaseDateClient::setTrack(const QString &title, const QString &firstArtist) {
-  const QString cleanTitle = title.trimmed();
+void ReleaseDateClient::setTrack(const QString &title,
+                                 const QString &firstArtist) {
+  int dashIndex = title.indexOf(QChar('-'));
+  int bracketIndex = title.indexOf(QChar('('));
+
+  QString cleanTitle = title.trimmed();
+  if (dashIndex != -1 && (bracketIndex == -1 || dashIndex < bracketIndex)) {
+    cleanTitle = title.left(dashIndex).trimmed();
+  } else if (bracketIndex != -1 &&
+             (dashIndex == -1 || bracketIndex < dashIndex)) {
+    cleanTitle = title.left(bracketIndex).trimmed();
+  }
+
   const QString cleanArtist = firstArtist.trimmed();
   if (cleanTitle.isEmpty() || cleanArtist.isEmpty()) {
     m_dispatchTimer.stop();
@@ -121,9 +140,10 @@ void ReleaseDateClient::setTrack(const QString &title, const QString &firstArtis
   } else {
     // A zero-delay timer coalesces MPRIS title and artist changes in one event.
     // Never start a second request until a full second after the previous one.
-    const int delay = m_lastRequest.isValid()
-                          ? static_cast<int>(qMax<qint64>(0, 1000 - m_lastRequest.elapsed()))
-                          : 0;
+    const int delay =
+        m_lastRequest.isValid()
+            ? static_cast<int>(qMax<qint64>(0, 1000 - m_lastRequest.elapsed()))
+            : 0;
     m_dispatchTimer.start(delay);
   }
 }
@@ -147,13 +167,16 @@ void ReleaseDateClient::dispatch() {
   url.setQuery(params);
 
   QNetworkRequest request(url);
-  request.setRawHeader("User-Agent", "BierKistnRadio/0.1.0 (https://github.com/Xoechz/BierKistnRadio)");
+  request.setRawHeader(
+      "User-Agent",
+      "BierKistnRadio/0.1.0 (https://github.com/Xoechz/BierKistnRadio)");
   request.setRawHeader("Accept", "application/json");
   request.setTransferTimeout(15000);
   m_lastRequest.start();
   QNetworkReply *reply = m_manager->get(request);
   auto body = std::make_shared<QByteArray>();
-  // Callback: no parameters/return; collect captured bytes and abort over 1 MiB.
+  // Callback: no parameters/return; collect captured bytes and abort over 1
+  // MiB.
   connect(reply, &QIODevice::readyRead, this, [reply, body]() {
     body->append(reply->readAll());
     if (body->size() > kMaxResponseBytes) {
@@ -161,16 +184,18 @@ void ReleaseDateClient::dispatch() {
     }
   });
   // Callback: no parameters/return; cache parsed non-connection results.
-  // Captured track key may warm cache after a switch but cannot replace current display.
+  // Captured track key may warm cache after a switch but cannot replace current
+  // display.
   connect(reply, &QNetworkReply::finished, this, [this, reply, key, body]() {
     reply->deleteLater();
     body->append(reply->readAll());
-    const QString result = reply->error() == QNetworkReply::NoError &&
-                                   body->size() <= kMaxResponseBytes &&
-                                   reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
-                                           .toInt() == 200
-                               ? parseDate(*body)
-                               : kNoConnection;
+    const QString result =
+        reply->error() == QNetworkReply::NoError &&
+                body->size() <= kMaxResponseBytes &&
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute)
+                        .toInt() == 200
+            ? parseDate(*body)
+            : kNoConnection;
     if (result != kNoConnection) {
       m_cache.insert(key, new QString(result));
     }

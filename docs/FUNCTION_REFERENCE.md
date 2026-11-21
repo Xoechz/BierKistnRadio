@@ -527,7 +527,7 @@ Source: [StatusBar.qml](../qml/StatusBar.qml).
 | --- | --- | --- | --- |
 | `switchSource()` | None | `undefined` | No-ops while switching; otherwise toggles explicit requested source based on view state. |
 | `bluetoothActive` block binding | None; depends on playbackState | `bool` | True for BluetoothWaiting/Active, false for Spotify states. |
-| Source MouseArea `onClicked` | None | `undefined` | Requests switchSource; area is disabled during transition. |
+| Source segment `onClicked` | None | `undefined` | Requests switchSource for an inactive segment; disabled during transition. |
 | Reboot button `onClicked` | None | `undefined` | Opens power dialog with `reboot`; does not immediately reboot. |
 | Shutdown button `onClicked` | None | `undefined` | Opens power dialog with `shutdown`. |
 | Clock Timer `onTriggered` | None | `undefined` | Updates local-time HH:mm label every second. |
@@ -536,7 +536,7 @@ Source: [StatusBar.qml](../qml/StatusBar.qml).
 
 Source: [WifiDialog.qml](../qml/WifiDialog.qml).
 
-`Main.qml` passes its overlay-owned `InputPanel` through `RightSidebar.inputPanel`
+`Main.qml` passes its overlay-owned `InputPanel` through `LeftColumn.inputPanel`
 to `WifiDialog.inputPanel`. The read-only `keyboardTop` binding uses the visible
 panel's actual `y` (clamped to overlay bounds), or the full overlay height when
 hidden/absent; it does not depend on platform `keyboardRectangle` reporting.
@@ -606,12 +606,12 @@ Source: [ConfirmDialog.qml](../qml/ConfirmDialog.qml).
 | LeftColumn artist Label `text` block binding | None; depends on source metadata | `string` | Selected source artist or empty. |
 | LeftColumn album Label `text` block binding | None; depends on source metadata | `string` | Selected source album or empty. |
 | LeftColumn Retry `onClicked` | None | `undefined` | Explicitly retries retained selected source. |
-| [RightSidebar.qml](../qml/RightSidebar.qml) / `btStatusText` block binding | None; depends on connected name/mute/source/power | `string` | Connected name with muted suffix, Discoverable for BT waiting, or not-connected/unavailable text. BT waiting text does not itself validate discovery readiness. |
-| RightSidebar `wifiStatusText` block binding | None; depends on connection/SSID | `string` | Connected SSID or “Not connected”. |
+| LeftColumn `btStatusText` block binding | None; depends on connected name/mute/source/power | `string` | Connected name with muted suffix, Discoverable for BT waiting, or not-connected/unavailable text. BT waiting text does not itself validate discovery readiness. |
+| LeftColumn `wifiStatusText` block binding | None; depends on connection/SSID | `string` | Connected SSID or “Not connected”. |
 | RightSidebar volume Slider `onMoved` | None; reads numeric slider value | `undefined` | Requests shared sink percentage; C++ setter accepts/clamps integer conversion. |
 | RightSidebar mute button `onClicked` | None | `undefined` | Toggles volume-derived mute intent. |
 | RightSidebar theme Switch `onToggled` | None; reads checked | `undefined` | Sets Theme.darkMode to switch state. |
-| RightSidebar Wifi Settings `onClicked` | None | `undefined` | Opens window-overlay-parented Wi-Fi popup. |
+| LeftColumn Wi-Fi Settings `onClicked` | None | `undefined` | Opens window-overlay-parented Wi-Fi popup. |
 | [Theme.qml](../qml/Theme.qml) | No authored functions | Not applicable | Declarative singleton values/bindings; Qt.rgba and Material values are library APIs. |
 
 Other simple QML property expressions are declarative bindings, not additional authored named functions. Their dependencies and value types appear directly in each property declaration.

@@ -22,99 +22,74 @@ Rectangle {
         }
     }
 
-    RowLayout {
-        anchors.fill: parent
+    Label {
+        id: clockLabel
+        anchors.left: parent.left
         anchors.leftMargin: Theme.defaultSpacing
+        anchors.verticalCenter: parent.verticalCenter
+        text: Qt.formatTime(new Date(), "HH:mm")
+        font.pixelSize: Theme.fontSizeLarge
+        font.bold: true
+        color: Theme.textColor
+    }
+
+    Row {
+        anchors.centerIn: parent
+        enabled: !root.switching
+        Repeater {
+            model: ["Spotify", "Bluetooth"]
+            delegate: Button {
+                id: segment
+                required property string modelData
+                required property int index
+                readonly property bool selected: root.bluetoothActive === (index === 1)
+                width: 104
+                height: Theme.touchTarget
+                text: selected && root.switching ? "…" : modelData
+                Accessible.name: modelData
+                background: Rectangle {
+                    anchors.fill: parent
+                    anchors.topMargin: Theme.smallSpacing
+                    anchors.bottomMargin: Theme.smallSpacing
+                    radius: height / 2
+                    color: !segment.selected ? Theme.surfaceColor
+                          : segment.index === 1 ? Theme.bluetoothColor : Theme.spotifyColor
+                }
+                contentItem: Label {
+                    text: segment.text
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font.bold: segment.selected
+                    color: !segment.selected ? Theme.secondaryTextColor
+                          : segment.index === 1 ? Theme.bluetoothTextColor : Theme.spotifyTextColor
+                }
+                onClicked: if (!selected) { root.switchSource() }
+            }
+        }
+    }
+
+    // ---------- Reboot / Shutdown (right) ----------
+    RowLayout {
+        anchors.right: parent.right
         anchors.rightMargin: Theme.defaultSpacing
+        anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.defaultSpacing
 
-        // ---------- Clock (left) ----------
-        Label {
-            id: clockLabel
-            text: Qt.formatTime(new Date(), "HH:mm")
+        Button {
+            text: "↻"
+            flat: true
             font.pixelSize: Theme.fontSizeLarge
-            font.bold: true
-            color: Theme.textColor
-            Layout.alignment: Qt.AlignVCenter
+            Material.foreground: Theme.textColor
+            // Handler: no arguments/return; ask for confirmation before any reboot command.
+            onClicked: powerDialog.openFor("reboot")
         }
-
-        // ---------- Source toggle (center) ----------
-        Item { Layout.fillWidth: true }
-
-        Rectangle {
-            id: sourceToggle
-            Layout.alignment: Qt.AlignVCenter
-            width: 200
-            height: 32
-            radius: height / 2
-            color: Theme.surfaceColor
-            border.color: Theme.primaryColor
-            border.width: 1
-            opacity: root.switching ? 0.3 : 1.0
-
-            Label {
-                anchors.centerIn: parent
-                text: root.switching ? "…" : ""
-                font.pixelSize: Theme.fontSizeMedium
-                color: Theme.accentColor
-            }
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 16
-                anchors.rightMargin: 16
-                spacing: 8
-
-                Label {
-                    text: "Spotify"
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.bold: !root.bluetoothActive
-                    color: root.bluetoothActive ? Theme.secondaryTextColor : Theme.accentColor
-                }
-                Label {
-                    text: "○══○"
-                    font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.secondaryTextColor
-                }
-                Label {
-                    text: "Bluetooth"
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.bold: root.bluetoothActive
-                    color: root.bluetoothActive ? Theme.accentColor : Theme.secondaryTextColor
-                }
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                enabled: !root.switching
-                // Handler: no arguments/return; select a source, disabled during transition.
-                onClicked: root.switchSource()
-            }
-        }
-
-        Item { Layout.fillWidth: true }
-
-        // ---------- Reboot / Shutdown (right) ----------
-        RowLayout {
-            Layout.alignment: Qt.AlignVCenter
-            spacing: Theme.defaultSpacing
-
-            Button {
-                text: "↻"
-                flat: true
-                font.pixelSize: Theme.fontSizeLarge
-                Material.foreground: Theme.textColor
-                // Handler: no arguments/return; ask for confirmation before any reboot command.
-                onClicked: powerDialog.openFor("reboot")
-            }
-            Button {
-                text: "⏻"
-                flat: true
-                font.pixelSize: Theme.fontSizeLarge
-                Material.foreground: Theme.errorColor
-                // Handler: no arguments/return; ask for confirmation before poweroff.
-                onClicked: powerDialog.openFor("shutdown")
-            }
+        Button {
+            text: "⏻"
+            flat: true
+            font.pixelSize: Theme.fontSizeLarge
+            Material.foreground: Theme.errorColor
+            // Handler: no arguments/return; ask for confirmation before poweroff.
+            onClicked: powerDialog.openFor("shutdown")
         }
     }
 

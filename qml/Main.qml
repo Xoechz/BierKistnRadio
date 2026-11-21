@@ -37,7 +37,8 @@ ApplicationWindow {
             spacing: 0
 
             LeftColumn {
-                Layout.preferredWidth: 250
+                inputPanel: keyboardPanel
+                Layout.preferredWidth: Theme.metadataWidth
                 Layout.fillHeight: true
             }
 
@@ -47,8 +48,7 @@ ApplicationWindow {
             }
 
             RightSidebar {
-                inputPanel: keyboardPanel
-                Layout.preferredWidth: 250
+                Layout.preferredWidth: Theme.volumeRailWidth
                 Layout.fillHeight: true
             }
         }

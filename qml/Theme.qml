@@ -18,6 +18,14 @@ QtObject {
     readonly property int touchTarget: 48
     readonly property int touchTargetLarge: 64
 
+    readonly property int metadataWidth: 426
+    readonly property int volumeRailWidth: 106
+    readonly property int artworkSize: 400
+    readonly property color spotifyColor: "#1DB954"
+    readonly property color bluetoothColor: "#1671C5"
+    readonly property color spotifyTextColor: "#101010"
+    readonly property color bluetoothTextColor: "#FFFFFF"
+
     readonly property int statusBarHeight: 48
     readonly property int cornerRadius: 12
     readonly property int defaultSpacing: 16

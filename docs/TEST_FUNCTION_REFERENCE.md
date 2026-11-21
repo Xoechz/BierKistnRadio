@@ -175,6 +175,7 @@ Source: [tst_CoverGestures.qml](../tests/tst_CoverGestures.qml).
 | `init()` | None | `undefined` | Resets source/playback/artwork fixture and action counters. |
 | `cover()` | None | Gesture-area QObject | Finds/asserts coverGesture child and returns it. |
 | `swipe(area, fromX, toX, toY)` | Target MouseArea; starting x; release x/y in pixels | `undefined` | Presses at start y=180, moves, releases to simulate gesture. |
+| `test_fixedArtworkAcrossSources()` | None | `undefined` | Checks fixed cover size and position across active and waiting sources at kiosk dimensions. |
 | `test_spotifyGestures()` | None | `undefined` | Checks taps, both horizontal swipes, no double action, and vertical-move rejection. |
 | `test_bluetoothAvailability()` | None | `undefined` | Checks gesture availability follows Status/source and dispatches BT actions. |
 | `test_transportIconsAtPanelSize()` | None | `undefined` | Checks 1024×600, icon/touch dimensions, centering, tint and Play/Pause source in both themes, plus button routing. |
@@ -183,6 +184,8 @@ Source: [tst_CoverGestures.qml](../tests/tst_CoverGestures.qml).
 ### Left Column
 
 Source: [tst_LeftColumn.qml](../tests/tst_LeftColumn.qml).
+
+`test_releaseDatePresentation()` takes no arguments and returns `undefined`; it checks full-date formatting, year-only precision and suppression of unknown dates.
 
 | Function | Parameters | Return | Purpose / effects |
 | --- | --- | --- | --- |
@@ -238,14 +241,14 @@ Source: [tst_WifiDialog.qml](../tests/tst_WifiDialog.qml).
 | `wifi.scan()` | None | `undefined` | Counts scans; fixture list is predetermined. |
 | `wifi.connect(ssid, password)` | Selected SSID/password text | `undefined` | Records args/count and marks connecting; does not emit success automatically. |
 | `wifi.connectionSucceeded(ssid)` (signal) | Confirmed SSID | No consumed result | Injects actual activation result matching/mismatching selected network. |
-| `popup()` | None | WifiDialog QObject, possibly null if absent | Finds named popup under actual sidebar. |
+| `popup()` | None | WifiDialog QObject, possibly null if absent | Finds named popup under actual left column. |
 | `init()` | None | `undefined` | Activates window, clears Wi-Fi fixture state/counters, resets keyboard space. |
 | `cleanup()` | None | `undefined` | Closes/waits for hidden popup and restores theme. |
 | `onScreen(item, height)` | Visual item; allowed vertical extent in pixels | `undefined` | Maps into window coordinates and asserts horizontal/vertical bounds with one-pixel tolerance. |
-| `openFromButton()` | None | `undefined` | Clicks real sidebar button, waits for opened popup, checks overlay parent and on-screen content/Cancel. |
+| `openFromButton()` | None | `undefined` | Clicks real lower-left settings button, waits for opened popup, checks overlay parent and on-screen content/Cancel. |
 | `test_actualButtonAndRepeatedCloseBothThemes()` | None | `undefined` | Checks repeated open/scan/list/Cancel sequences in both themes. |
 | `test_passwordKeyboardGeometryAndActivationResult_data()` | None | Theme/height data rows | Exercises dark/light themes with keyboard tops at 280 and 250 px. |
-| `test_passwordKeyboardGeometryAndActivationResult(data)` | Theme and keyboard top | `undefined` | Clicks secured delegate, checks focus, drives an opaque overlay panel through the sidebar's actual geometry binding (without overriding popup height), checks password/error/actions above it, types credentials and clicks Connect, verifies failure persistence, panel hide/show resizing, matching-only close and focus removal. |
+| `test_passwordKeyboardGeometryAndActivationResult(data)` | Theme and keyboard top | `undefined` | Clicks secured delegate, checks focus, drives an opaque overlay panel through the left column's actual geometry binding (without overriding popup height), checks password/error/actions above it, types credentials and clicks Connect, verifies failure persistence, panel hide/show resizing, matching-only close and focus removal. |
 | `test_cancelWhileKeyboardOpen()` | None | `undefined` | Selects a secured network, shows the panel, clicks reachable Cancel and verifies popup dismissal/focus removal. |
 | `test_escapeClearsModalInputBlock()` | None | `undefined` | Dismisses by Escape and reopens through underlying button. |
 

@@ -160,9 +160,8 @@ Rectangle {
         Image {
             id: albumArt
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 360
-            Layout.preferredHeight: 360
-            Layout.topMargin: 12
+            Layout.preferredWidth: Theme.artworkSize
+            Layout.preferredHeight: Theme.artworkSize
             source: root.cachedArtUrl !== "" ? root.cachedArtUrl
                 : "qrc:/qt/qml/BierKistnRadio/assets/fallback-album.svg"
             fillMode: Image.PreserveAspectFit
@@ -213,18 +212,16 @@ Rectangle {
             }
         }
 
-        Item { Layout.fillHeight: true }
-
         // ---------- Progress: scrubber / passive bar (T14) ----------
-        RowLayout {
+        Item {
             id: progressRow
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.touchTarget
-            spacing: Theme.smallSpacing
-            visible: root.showSpotifyProgress || root.showBluetoothBar
+            Layout.preferredHeight: Theme.touchTarget + Theme.smallSpacing
 
             Label {
                 id: currentTimeLabel
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
                 text: root.formatTime(root.currentMs)
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.secondaryTextColor
@@ -233,7 +230,8 @@ Rectangle {
 
             Slider {
                 id: scrubSlider
-                Layout.fillWidth: true
+                width: parent.width
+                height: Theme.touchTarget
                 visible: root.showSpotifyProgress
                 from: 0
                 to: Math.max(1, root.playback.spotify.duration / 1000)
@@ -261,8 +259,8 @@ Rectangle {
 
             ProgressBar {
                 id: passiveBar
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.touchTarget
+                width: parent.width
+                height: Theme.touchTarget
                 visible: root.showBluetoothBar
                 from: 0
                 to: 1
@@ -273,14 +271,14 @@ Rectangle {
 
             Label {
                 id: totalTimeLabel
+                anchors.bottom: parent.bottom
+                anchors.right: parent.right
                 text: root.formatTime(root.totalMs)
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.secondaryTextColor
                 visible: root.showTimeLabels
             }
         }
-
-        Item { Layout.fillHeight: true }
 
         // ---------- Transport buttons (T15) ----------
         RowLayout {
@@ -334,6 +332,6 @@ Rectangle {
             }
         }
 
-        Item { Layout.fillHeight: true }
+        Item { Layout.fillHeight: true; visible: !root.showTransport }
     }
 }
