@@ -169,7 +169,7 @@ Rectangle {
                             return root.playback.spotify.title
                         case PlaybackController.BluetoothActive:
                             return root.btTrack && root.playback.bluetooth.trackTitle
-                                ? root.playback.bluetooth.trackTitle + " via " + root.btDeviceName : ""
+                                ? root.playback.bluetooth.trackTitle
                         }
                         return ""
                     }
