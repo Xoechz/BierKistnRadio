@@ -69,7 +69,7 @@ Results below reconcile the guided Pi testing session. App/system deployment rev
   - `SpotifyWaiting`: hint text "Open Spotify on your phone — choose this speaker"
   - `SpotifyActive`: Track title (bold, large, word-wrap max 3 lines then elide), Artist, Album, Release Date
   - `BluetoothWaiting`: hint text "Discoverable — connect your phone"
-  - `BluetoothActive` + `trackPublished`: Track title (suffixed "via \<device name\>"), Artist, Album
+  - `BluetoothActive` + `trackPublished`: Track title, Artist, Album
   - `BluetoothActive` + `!trackPublished`: "Controlled by \<device name\>" as title, "No metadata available" as subtitle
   - Learn: QML `states` with `PropertyChanges`, `Text { wrapMode: Text.WordWrap; maximumLineCount: 3; elide: Text.ElideRight }`.
 

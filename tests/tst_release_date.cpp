@@ -18,13 +18,16 @@ public:
   QList<qint64> times;
   QElapsedTimer clock;
 
-  /// No parameters/return; install TCP fixture callbacks and request-time clock.
+  /// No parameters/return; install TCP fixture callbacks and request-time
+  /// clock.
   RecordingServer() {
     clock.start();
-    // Callback: no parameters/return; accept socket and install per-request handling.
+    // Callback: no parameters/return; accept socket and install per-request
+    // handling.
     connect(this, &QTcpServer::newConnection, this, [this]() {
       QTcpSocket *socket = nextPendingConnection();
-      // Callback: no args/return; captured socket bytes form one complete header request.
+      // Callback: no args/return; captured socket bytes form one complete
+      // header request.
       connect(socket, &QTcpSocket::readyRead, socket, [this, socket]() {
         QByteArray &data = m_buffers[socket];
         data += socket->readAll();
@@ -41,7 +44,8 @@ public:
     });
   }
 
-  /// status: HTTP code; body: JSON bytes. Returns void; queue response and flush waiting socket.
+  /// status: HTTP code; body: JSON bytes. Returns void; queue response and
+  /// flush waiting socket.
   void enqueue(int status, const QByteArray &body) {
     m_responses.enqueue({status, body});
     flush();
@@ -52,7 +56,8 @@ private:
   QQueue<QTcpSocket *> m_pending;
   QHash<QTcpSocket *, QByteArray> m_buffers;
 
-  /// No parameters/return; pair requests/responses, send sized HTTP payloads, close sockets.
+  /// No parameters/return; pair requests/responses, send sized HTTP payloads,
+  /// close sockets.
   void flush() {
     while (!m_pending.isEmpty() && !m_responses.isEmpty()) {
       QTcpSocket *socket = m_pending.dequeue();
@@ -72,40 +77,47 @@ class TestReleaseDate : public QObject {
 
 private slots:
   // Test slots take no parameters and return void; outcomes use Qt assertions.
-  /// Verify query escaping/headers, date notification, cache reuse and clearing.
+  /// Verify query escaping/headers, date notification, cache reuse and
+  /// clearing.
   void testLookupAndCache();
   /// Verify missing/ambiguous records differ from HTTP/network failure.
   void testUnknownAndConnectionFailure();
-  /// Verify obsolete track reply cannot replace new value and requests start >=1 s apart.
+  /// Verify obsolete track reply cannot replace new value and requests start
+  /// >=1 s apart.
   void testStaleResponseAndRateLimit();
 };
 
 void TestReleaseDate::testLookupAndCache() {
   RecordingServer server;
   QVERIFY(server.listen(QHostAddress::LocalHost));
-  server.enqueue(200, R"({"count":1,"recordings":[{"first-release-date":"2005-08-09"}]})");
+  server.enqueue(
+      200, R"({"count":1,"recordings":[{"first-release-date":"2005-08-09"}]})");
   QNetworkAccessManager manager;
   ReleaseDateClient client(
       &manager, QUrl(QStringLiteral("http://127.0.0.1:%1/ws/2/recording/")
                          .arg(server.serverPort())));
   QSignalSpy changed(&client, &ReleaseDateClient::releaseDateChanged);
-  client.setTrack(QStringLiteral("Exodus (Live)"), QStringLiteral("Brand of Sacrifice"));
+  client.setTrack(QStringLiteral("Exodus (Live)"),
+                  QStringLiteral("Brand of Sacrifice"));
   QTRY_COMPARE(client.releaseDate(), QStringLiteral("2005-08-09"));
   QCOMPARE(changed.size(), 1);
   QCOMPARE(server.requests.size(), 1);
   const QByteArray request = server.requests.first();
   const QByteArray urlPart = request.split(' ').at(1);
-  const QUrl url(QStringLiteral("http://localhost") + QString::fromLatin1(urlPart));
+  const QUrl url(QStringLiteral("http://localhost") +
+                 QString::fromLatin1(urlPart));
   const QUrlQuery query(url);
-  QCOMPARE(query.queryItemValue(QStringLiteral("query")),
-           QStringLiteral("recording:\"Exodus \\(Live\\)\" AND artist:\"Brand of Sacrifice\""));
+  QCOMPARE(
+      query.queryItemValue(QStringLiteral("query")),
+      QStringLiteral("recording:\"Exodus\" AND artist:\"Brand of Sacrifice\""));
   QCOMPARE(query.queryItemValue(QStringLiteral("fmt")), QStringLiteral("json"));
   QCOMPARE(query.queryItemValue(QStringLiteral("limit")), QStringLiteral("2"));
   QVERIFY(request.contains("User-Agent: BierKistnRadio/0.1.0 "));
 
   client.clearTrack();
   QCOMPARE(client.releaseDate(), QString());
-  client.setTrack(QStringLiteral("Exodus (Live)"), QStringLiteral("Brand of Sacrifice"));
+  client.setTrack(QStringLiteral("Exodus (Live)"),
+                  QStringLiteral("Brand of Sacrifice"));
   QCOMPARE(client.releaseDate(), QStringLiteral("2005-08-09"));
   QCOMPARE(server.requests.size(), 1);
 }
@@ -127,8 +139,9 @@ void TestReleaseDate::testUnknownAndConnectionFailure() {
   QTRY_COMPARE(server.requests.size(), 1);
   server.enqueue(503, R"({"error":"busy"})");
   client.setTrack(QStringLiteral("Offline"), QStringLiteral("Artist"));
-  QTRY_COMPARE(client.releaseDate(),
-               QStringLiteral("No Connection to Musicbrainz for release dates"));
+  QTRY_COMPARE(
+      client.releaseDate(),
+      QStringLiteral("No Connection to Musicbrainz for release dates"));
 
   client.clearTrack();
   QCOMPARE(client.releaseDate(), QString());
@@ -147,10 +160,12 @@ void TestReleaseDate::testStaleResponseAndRateLimit() {
   client.setTrack(QStringLiteral("Old"), QStringLiteral("Artist"));
   QTRY_COMPARE(server.requests.size(), 1);
   client.setTrack(QStringLiteral("New"), QStringLiteral("Artist"));
-  server.enqueue(200, R"({"count":1,"recordings":[{"first-release-date":"1990"}]})");
+  server.enqueue(200,
+                 R"({"count":1,"recordings":[{"first-release-date":"1990"}]})");
   QTest::qWait(50);
   QCOMPARE(client.releaseDate(), QString()); // old track must not overwrite New
-  server.enqueue(200, R"({"count":1,"recordings":[{"first-release-date":"2001-02"}]})");
+  server.enqueue(
+      200, R"({"count":1,"recordings":[{"first-release-date":"2001-02"}]})");
   QTRY_COMPARE(client.releaseDate(), QStringLiteral("2001-02"));
   QCOMPARE(server.requests.size(), 2);
   QVERIFY(server.times.at(1) - server.times.at(0) >= 1000);

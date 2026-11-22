@@ -80,7 +80,7 @@ Content depends on playback state:
 - **`SpotifyActive`:** Track title (bold, large, word-wrap max 3 lines then elide), Artist, Album, Release Date (separate rows). Release Date is resolved via MusicBrainz lookup (see TODO T24).
 - **`BluetoothWaiting`:** Hint text — "Discoverable — connect your phone".
 - **`BluetoothActive`:**
-  - If `trackPublished`: Track title, Artist, Album (word-wrap max 3 lines then elide). Title suffixed "via \<device name\>".
+  - If `trackPublished`: Track title, Artist, Album (word-wrap max 3 lines then elide).
   - If `!trackPublished`: "Controlled by \<device name\>" as title, "No metadata available" as subtitle.
 
 Bluetooth status, Wi-Fi status and Wi-Fi Settings are anchored below the metadata. Missing metadata fields and captions are hidden. Full dates display as DD.MM.YYYY; partial dates retain their precision.
